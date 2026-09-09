@@ -83,7 +83,7 @@ Role Enum: ['SUPER_ADMIN', 'SCHOOL_ADMIN', 'ADMIN', 'DRIVER', 'PARENT']
 |---|---|---|
 | **`SUPER_ADMIN`** | `/super-admin` | Multi-tenant SaaS owner. Tenant provisioning, subscription tiers (`FREE`, `BASIC`, `PREMIUM`), quotas (`maxBuses`, `maxStudents`, `maxUsers`), global audit logs. |
 | **`SCHOOL_ADMIN`** | `/school-admin` | School leadership / Principal. Student/parent directories, academic calendar, school-wide announcements, attendance KPIs. |
-| **`ADMIN`** | `/admin` | Daily fleet dispatcher desk (16 tabs: live bus GPS map, vehicle maintenance, routes/stops, attendance overrides, lost & found). |
+| **`ADMIN`** | `/admin` | Transport operations desk: overview, fleet and routes/stops, bus attendance, live trips, scheduling, trip history, maintenance, lost & found, announcements, analytics, and messages. Student management, user management, AI route optimization, and academic calendar management are outside this module. |
 | **`DRIVER`** | `/driver` | Frontline mobile console. Trip start/stop lifecycle, stop-by-stop check-in (`PICKED_UP`, `DROPPED_OFF`, `ABSENT`), QR scanning, delay reporting, panic button. |
 | **`PARENT`** | `/parent` | Mobile-first guardian dashboard. Real-time bus tracking with live ETA & proximity alerts, two-way boarding confirmation, trip rating, messaging, gamification streaks. |
 

@@ -6,8 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import Image from 'next/image'
 import OverviewTab from '@/components/admin/OverviewTab'
 import AttendanceTab from '@/components/admin/AttendanceTab'
-import UsersTab from '@/components/admin/UsersTab'
-import StudentsTab from '@/components/admin/StudentsTab'
 import FleetTab from '@/components/admin/FleetTab'
 import LiveTripsTab from '@/components/admin/LiveTripsTab'
 import MessagesTab from '@/components/admin/MessagesTab'
@@ -17,15 +15,12 @@ import MaintenanceTab from '@/components/admin/MaintenanceTab'
 import LostFoundTab from '@/components/admin/LostFoundTab'
 import AnnouncementsTab from '@/components/admin/AnnouncementsTab'
 import TripHistoryTab from '@/components/admin/TripHistoryTab'
-import RouteOptimizationTab from '@/components/admin/RouteOptimizationTab'
-import AcademicCalendarTab from '@/components/admin/AcademicCalendarTab'
-import OrganizationsTab from '@/components/admin/OrganizationsTab'
 import { LanguageSwitcher, useTranslation } from '@/i18n/provider'
 import {
   LogOut, Menu, X,
-  LayoutDashboard, Bus, GraduationCap, MapPin, CalendarDays, History,
-  Users2, Wrench, Package, Megaphone, TrendingUp, Sparkles, MessageSquare, Bell,
-  Building2, ShieldCheck, ClipboardCheck,
+  LayoutDashboard, Bus, MapPin, CalendarDays, History,
+  Wrench, Package, Megaphone, TrendingUp, MessageSquare,
+  ClipboardCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -56,7 +51,6 @@ function buildSidebarGroups(t: (k: string) => string): SidebarGroup[] {
       items: [
         { id: 'OVERVIEW',    icon: LayoutDashboard, label: t('nav.overview') },
         { id: 'FLEET',       icon: Bus,             label: t('nav.fleet') },
-        { id: 'STUDENTS',    icon: GraduationCap,   label: t('nav.students') },
         { id: 'ATTENDANCE',  icon: ClipboardCheck,  label: t('nav.attendance') },
         { id: 'LIVETRIPS',   icon: MapPin,          label: t('nav.liveTrips') },
         { id: 'SCHEDULE',    icon: CalendarDays,    label: t('nav.schedule') },
@@ -66,7 +60,6 @@ function buildSidebarGroups(t: (k: string) => string): SidebarGroup[] {
     {
       label: t('nav.groupManagement'),
       items: [
-        { id: 'USERS',         icon: Users2,    label: t('nav.users') },
         { id: 'MAINTENANCE',   icon: Wrench,    label: t('nav.maintenance') },
         { id: 'LOSTFOUND',     icon: Package,   label: t('nav.lostFound') },
         { id: 'ANNOUNCEMENTS', icon: Megaphone, label: t('nav.announcements') },
@@ -76,9 +69,7 @@ function buildSidebarGroups(t: (k: string) => string): SidebarGroup[] {
       label: t('nav.groupIntelligence'),
       items: [
         { id: 'ANALYTICS', icon: TrendingUp,    label: t('nav.analytics') },
-        { id: 'OPTIMIZE',  icon: Sparkles,      label: t('nav.aiOptimize') },
         { id: 'MESSAGES',  icon: MessageSquare, label: t('nav.messages') },
-        { id: 'CALENDAR',  icon: Bell,          label: t('nav.academicCalendar') },
       ],
     },
   ]
@@ -122,20 +113,9 @@ export default function AdminDashboard() {
   const { t } = useTranslation()
 
   const SIDEBAR_GROUPS = buildSidebarGroups(t)
-  const TAB_LABELS: Record<string, string> = {
-    OVERVIEW: t('nav.overview'), FLEET: t('nav.fleet'), STUDENTS: t('nav.students'),
-    ATTENDANCE: t('nav.attendance'),
-    LIVETRIPS: t('nav.liveTrips'), SCHEDULE: t('nav.schedule'), HISTORY: t('nav.history'),
-    USERS: t('nav.users'), MAINTENANCE: t('nav.maintenance'), LOSTFOUND: t('nav.lostFound'),
-    ANNOUNCEMENTS: t('nav.announcements'), ANALYTICS: t('nav.analytics'),
-    OPTIMIZE: t('nav.aiOptimize'), MESSAGES: t('nav.messages'), CALENDAR: t('nav.academicCalendar'),
-    ORGANIZATIONS: t('nav.organisations'),
-  }
-  const SUPER_ADMIN_ITEMS: { id: string; icon: LucideIcon; label: string }[] = [
-    { id: 'ORGANIZATIONS', icon: Building2,   label: t('nav.organisations') },
-    { id: 'SUPERUSERS',    icon: ShieldCheck, label: t('nav.allUsersGlobal') },
-  ]
-
+  const TAB_LABELS: Record<string, string> = Object.fromEntries(
+    SIDEBAR_GROUPS.flatMap(group => group.items.map(item => [item.id, item.label]))
+  )
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 900)
     check()
@@ -199,19 +179,6 @@ export default function AdminDashboard() {
           </button>
         )}
       </div>
-
-      {/* SUPER_ADMIN section */}
-      {currentUserRole === 'SUPER_ADMIN' && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.14em', color: HC.yellow, padding: '8px 14px 6px', textTransform: 'uppercase', opacity: 0.85 }}>
-            Super Admin
-          </div>
-          {SUPER_ADMIN_ITEMS.map(item => (
-            <SidebarItem key={item.id} icon={item.icon} label={item.label} active={activeTab === item.id} onClick={() => handleNavClick(item.id)} />
-          ))}
-          <div style={{ height: 1, background: HC.line, margin: '8px 14px' }} />
-        </div>
-      )}
 
       {/* Nav groups */}
       {SIDEBAR_GROUPS.map(group => (
@@ -315,7 +282,7 @@ export default function AdminDashboard() {
               </div>
             )}
             <h2 style={{
-              fontFamily: 'var(--font-sora, Sora, system-ui)',
+              fontFamily: 'inherit',
               fontSize: isMobile ? 17 : 21, fontWeight: 700, color: HC.text,
               letterSpacing: '-0.025em', marginTop: isMobile ? 0 : 3,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -326,12 +293,12 @@ export default function AdminDashboard() {
 
           {/* Global Search Bar */}
           {!isMobile && (() => {
-            const searchable = ['STUDENTS', 'USERS', 'SUPERUSERS', 'FLEET'].includes(activeTab)
+            const searchable = activeTab === 'FLEET'
             
             // Generate quick jump suggestions if query matches any tab label
             const jumpSuggestions = searchQuery 
               ? Object.entries(TAB_LABELS)
-                  .filter(([_, label]) => label.toLowerCase().includes(searchQuery.toLowerCase()) && !searchable)
+                  .filter(([, label]) => label.toLowerCase().includes(searchQuery.toLowerCase()) && !searchable)
                   .slice(0, 3)
               : []
 
@@ -372,22 +339,6 @@ export default function AdminDashboard() {
                         Global Search Options
                       </div>
                       <div style={{ padding: '4px' }}>
-                        <button
-                          onClick={() => { setActiveTab('STUDENTS'); setSearchQuery(searchQuery); }}
-                          style={{ width: '100%', textAlign: 'left', padding: '10px 12px', background: 'transparent', border: 'none', color: HC.text, fontSize: 13, cursor: 'pointer', borderRadius: 8 }}
-                          onMouseOver={e => e.currentTarget.style.background = HC.lineStrong}
-                          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                          Search <span style={{ color: HC.yellow }}>&quot;{searchQuery}&quot;</span> in <strong>Students</strong>
-                        </button>
-                        <button
-                          onClick={() => { setActiveTab('USERS'); setSearchQuery(searchQuery); }}
-                          style={{ width: '100%', textAlign: 'left', padding: '10px 12px', background: 'transparent', border: 'none', color: HC.text, fontSize: 13, cursor: 'pointer', borderRadius: 8 }}
-                          onMouseOver={e => e.currentTarget.style.background = HC.lineStrong}
-                          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                          Search <span style={{ color: HC.yellow }}>&quot;{searchQuery}&quot;</span> in <strong>Users</strong>
-                        </button>
                         <button
                           onClick={() => { setActiveTab('FLEET'); setSearchQuery(searchQuery); }}
                           style={{ width: '100%', textAlign: 'left', padding: '10px 12px', background: 'transparent', border: 'none', color: HC.text, fontSize: 13, cursor: 'pointer', borderRadius: 8 }}
@@ -452,8 +403,6 @@ export default function AdminDashboard() {
             >
               {activeTab === 'OVERVIEW'      && <OverviewTab currentUserRole={currentUserRole} />}
               {activeTab === 'ANALYTICS'     && <AnalyticsTab />}
-              {activeTab === 'USERS'         && <UsersTab searchQuery={searchQuery} />}
-              {activeTab === 'STUDENTS'      && <StudentsTab searchQuery={searchQuery} />}
               {activeTab === 'ATTENDANCE'    && <AttendanceTab />}
               {activeTab === 'FLEET'         && <FleetTab searchQuery={searchQuery} />}
               {activeTab === 'LIVETRIPS'     && <LiveTripsTab />}
@@ -462,11 +411,7 @@ export default function AdminDashboard() {
               {activeTab === 'MAINTENANCE'   && <MaintenanceTab />}
               {activeTab === 'LOSTFOUND'     && <LostFoundTab />}
               {activeTab === 'ANNOUNCEMENTS' && <AnnouncementsTab />}
-              {activeTab === 'OPTIMIZE'       && <RouteOptimizationTab />}
               {activeTab === 'MESSAGES'       && <MessagesTab />}
-              {activeTab === 'CALENDAR'       && <AcademicCalendarTab />}
-              {activeTab === 'ORGANIZATIONS'  && <OrganizationsTab />}
-              {activeTab === 'SUPERUSERS'     && <UsersTab currentUserRole={currentUserRole} searchQuery={searchQuery} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -489,7 +434,7 @@ export default function AdminDashboard() {
               <div style={{ width: 54, height: 54, borderRadius: '50%', background: HC.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
                 <LogOut size={24} color={HC.danger} />
               </div>
-              <h3 style={{ fontFamily: 'var(--font-sora, Sora, system-ui)', fontSize: 20, marginBottom: '0.5rem', color: HC.text }}>{t('common.confirm')} {t('common.logout')}</h3>
+              <h3 style={{ fontFamily: 'inherit', fontSize: 20, marginBottom: '0.5rem', color: HC.text }}>{t('common.confirm')} {t('common.logout')}</h3>
               <p style={{ color: HC.text2, fontSize: 14, marginBottom: '1.75rem', lineHeight: 1.55 }}>
                 Are you sure you want to log out?
               </p>

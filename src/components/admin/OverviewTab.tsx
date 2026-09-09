@@ -316,56 +316,6 @@ export default function OverviewTab({ currentUserRole }: { currentUserRole: stri
                     </motion.div>
                 )}
 
-                {/* Students overview */}
-                <motion.div variants={cardVariants} className="bento-card" style={{ padding: '2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                        <h3 style={{ margin: 0 }}>{t('nav.students')} {t('nav.overview')}</h3>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                            <span className="badge badge-success">{presentStudents} IN</span>
-                            <span className="badge badge-pending">{students.length - presentStudents} OUT</span>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {students.slice(0, 15).map(student => (
-                            <motion.div key={student.id} whileHover={{ backgroundColor: 'rgba(255,255,255,0.04)' }}
-                                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                    padding: '0.875rem 1rem', background: 'rgba(255,255,255,0.02)',
-                                    borderRadius: 10, border: '1px solid var(--surface-border)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <div style={{ width: 36, height: 36, borderRadius: '50%',
-                                        background: 'linear-gradient(135deg,#4f46e5,#6366f1)',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontWeight: 700, color: '#fff', fontSize: '0.9rem', flexShrink: 0 }}>
-                                        {student.name.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <div style={{ fontWeight: 500, fontSize: '0.95rem' }}>{student.name}</div>
-                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                            {student.grade} · {student.parentContact1}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                    {student.isSelfPickup && <span className="badge badge-warning">Self-Pickup</span>}
-                                    <span className={`badge ${student.status === 'CHECKED_OUT' ? 'badge-success' : 'badge-pending'}`}>
-                                        {student.status.replace('_', ' ')}
-                                    </span>
-                                </div>
-                            </motion.div>
-                        ))}
-                        {students.length === 0 && (
-                            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                                No students registered yet. Go to the Students tab to add some.
-                            </div>
-                        )}
-                        {students.length > 15 && (
-                            <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 8 }}>
-                                ... and {students.length - 15} more. See the Students tab for the full list.
-                            </div>
-                        )}
-                    </div>
-                </motion.div>
             </motion.div>
         </div>
     )
