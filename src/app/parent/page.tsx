@@ -35,9 +35,14 @@ interface MessageData {
 const BusMap = dynamic(() => import('@/components/shared/BusMap'), { ssr: false })
 
 import { useAudio } from '@/hooks/useAudio'
-import { useTranslation } from '@/i18n/provider'
+import { useTranslation, LanguageSwitcher } from '@/i18n/provider'
 import CalendarCard from '@/components/parent/CalendarCard'
-import { Target, Flame, ShieldCheck, Sunrise, AlertTriangle, CheckCircle, AlertCircle, Trophy, Medal, Award, Phone, Bus, Clock, Clipboard, Home, XCircle, User, Settings, Bell, HelpCircle, LogOut, Globe } from 'lucide-react'
+import {
+  Target, Flame, ShieldCheck, Sunrise, AlertTriangle, CheckCircle, AlertCircle,
+  Trophy, Medal, Award, Phone, Bus, Clock, Clipboard, Home, XCircle, User,
+  Settings, Bell, HelpCircle, LogOut, Globe, Navigation, MessageSquare, Shield,
+  ChevronRight, Sparkles, MapPin, Check, Send
+} from 'lucide-react'
 
 // ── Gamification helpers ──────────────────────────────────────────────────────
 const BADGES = [
@@ -61,11 +66,12 @@ export default function ParentDashboard() {
   const [, setLastNotifId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'HOME' | 'MY_CHILD' | 'MESSAGES' | 'PROFILE'>('HOME')
-  const [showMap, setShowMap] = useState(false)
+  const [showMapModal, setShowMapModal] = useState(false)
   const [busNearby, setBusNearby] = useState(false)
   const [busNearbyStop, setBusNearbyStop] = useState<string>('')
   const busNearbyRef = useRef(false)
   const prevDriverLatRef = useRef<number | null>(null)
+  
   // Active trip delay info
   const [activeTrip, setActiveTrip] = useState<{ id: string; delayMinutes?: number; delayReason?: string; routeName?: string } | null>(null)
   // Confirmation loading state
@@ -83,10 +89,9 @@ export default function ParentDashboard() {
   const [profileNotice, setProfileNotice] = useState('')
   const showProfileNotice = (msg: string) => { setProfileNotice(msg); setTimeout(() => setProfileNotice(''), 3000) }
 
-  // App Unlock & Audio State
-  const [appUnlocked, setAppUnlocked] = useState(true)
-  const { play: playAlert, isReady: isAlertReady } = useAudio('/alert toon.mp3')
-  const { play: playHorn, isReady: isHornReady } = useAudio('/bus-horn.mp3')
+  // Audio Hooks
+  const { play: playAlert } = useAudio('/alert toon.mp3')
+  const { play: playHorn } = useAudio('/bus-horn.mp3')
 
   const router = useRouter()
 
@@ -111,7 +116,6 @@ export default function ParentDashboard() {
     const stop = studentsData[0].pickupStop
     if (!stop.latitude || !stop.longitude) return
 
-    // Haversine distance in km
     const R = 6371
     const dLat = (stop.latitude - activeDriver.lastLatitude) * (Math.PI / 180)
     const dLon = (stop.longitude - activeDriver.lastLongitude) * (Math.PI / 180)
@@ -120,7 +124,7 @@ export default function ParentDashboard() {
       Math.sin(dLon/2) * Math.sin(dLon/2)
     const distKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 
-    const THRESHOLD_KM = 0.5 // 500 metres
+    const THRESHOLD_KM = 0.5
     if (distKm <= THRESHOLD_KM) {
       if (!busNearbyRef.current) {
         busNearbyRef.current = true
@@ -142,7 +146,6 @@ export default function ParentDashboard() {
         setTimeout(() => { busNearbyRef.current = false; setBusNearby(false); setBusNearbyStop('') }, 60000)
       }
     } else {
-      // Bus has moved away from stop — reset alert so it can re-fire next approach
       if (busNearbyRef.current && distKm > THRESHOLD_KM + 0.2) {
         busNearbyRef.current = false
         setBusNearby(false)
@@ -153,14 +156,12 @@ export default function ParentDashboard() {
   }
 
   useEffect(() => {
-    // Fetch school name once
     fetch('/api/admin/settings').then(r => r.json()).then(d => {
       if (d.schoolName) setSchoolName(d.schoolName)
     }).catch(() => {})
   }, [])
 
   useEffect(() => {
-    // Initial fetch including location
     const fetchInitialData = async () => {
       try {
         const [studentsRes, locationRes, notifRes, msgRes, meRes] = await Promise.all([
@@ -191,20 +192,18 @@ export default function ParentDashboard() {
         setNotifications(newNotifs)
         setMessages(msgData.messages || [])
 
-        // Fetch active trip delay info
         try {
           const tripRes = await fetch('/api/trips/active')
           if (tripRes.ok) {
             const tripData = await tripRes.json()
             if (tripData.trip) setActiveTrip(tripData.trip)
           }
-        } catch { /* silent — delay info is supplementary */ }
+        } catch { /* silent */ }
 
         if (loading) setLoading(false)
       } catch (error) { console.error(error) }
     }
 
-    // Interval fetch for notifications & messages only (every 15s)
     const fetchBackgroundData = async () => {
       try {
         const [notifRes, msgRes] = await Promise.all([
@@ -241,24 +240,15 @@ export default function ParentDashboard() {
     fetchInitialData()
     const interval = setInterval(fetchBackgroundData, 15000)
 
-    // Setup SSE for real-time location updates
     const evtSource = new EventSource('/api/location/stream')
     evtSource.onmessage = (event) => {
       try {
         const update = JSON.parse(event.data)
         setDrivers(prevDrivers => {
-          // If we already have the driver in state, update their fields
           const exists = prevDrivers.some(d => d.id === update.id)
-          const newDrivers = exists 
+          return exists 
             ? prevDrivers.map(d => d.id === update.id ? { ...d, ...update } : d)
             : [...prevDrivers, update]
-          
-          // Trigger proximity check with updated drivers
-          // We have to use a functional approach or ref to get current students
-          // For simplicity, checkBusProximity relies on the most recent students state.
-          // In React, this is tricky if checkBusProximity captures old students state,
-          // but setDrivers functional update is safe. We will call checkBusProximity in a separate effect
-          return newDrivers
         })
       } catch (e) {
         console.error('SSE Error parsing update:', e)
@@ -272,7 +262,6 @@ export default function ParentDashboard() {
     // eslint-disable-next-line
   }, [router])
 
-  // Trigger proximity check when drivers or students change
   useEffect(() => {
     if (drivers.length > 0 && students.length > 0) {
       checkBusProximity(drivers, students)
@@ -287,72 +276,149 @@ export default function ParentDashboard() {
     if (!msgContent.trim()) return
     setSending(true)
     try {
-      // Find an admin to message via the parent-safe school-contact lookup
-      // (the full user list endpoint is admin-only and always rejects parents)
       const contactRes = await fetch('/api/messages/school-contact').catch(() => null)
       let adminId: string | null = null
       if (contactRes && contactRes.ok) {
         const cd = await contactRes.json()
         adminId = cd.admin?.id || null
       }
-      if (!adminId) { setMsgToast('No admin found to message'); setSending(false); return }
+      if (!adminId) { setMsgToast('No school dispatcher available'); setSending(false); return }
       const res = await fetch('/api/messages', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recipientId: adminId, content: msgContent.trim() })
       })
-      if (res.ok) { setMsgContent(''); setMsgToast('Message sent!') }
-      else setMsgToast('Failed to send')
+      if (res.ok) { setMsgContent(''); setMsgToast('Message sent to School Dispatch!') }
+      else setMsgToast('Failed to send message')
     } catch { setMsgToast('Network error') } finally {
       setSending(false); setTimeout(() => setMsgToast(''), 3000)
     }
   }
 
+  const todayStr = new Intl.DateTimeFormat(locale === 'ms' ? 'ms-MY' : (locale === 'zh' ? 'zh-CN' : 'en-GB'), {
+    weekday: 'long', day: 'numeric', month: 'short', year: 'numeric'
+  }).format(new Date())
+  const unreadNotifs = notifications.filter(n => !n.read).length
+  const primaryStudent = students[0]
+  const activeDriver = drivers[0]
 
   if (loading) return (
-    <div className="mobile-wrapper">
-      <div className="mobile-theme" style={{ padding:'2rem 1rem' }}>
-        {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: i===1?80:60, marginBottom:12, borderRadius:16 }} />)}
+    <div className="parent-portal-wrapper" style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh' }}>
+      <div style={{ textAlign:'center' }}>
+        <div style={{ width:48, height:48, border:'3px solid rgba(255,214,10,0.2)', borderTopColor:'#FFD60A', borderRadius:'50%', animation:'spin 0.8s linear infinite', margin:'0 auto 16px' }} />
+        <div style={{ color:'var(--hc-text-2, #A6A6B2)', fontSize:14, fontWeight:600 }}>Loading RideSafe Parent Portal…</div>
       </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 
-  const todayStr = new Intl.DateTimeFormat(locale === 'ms' ? 'ms-MY' : (locale === 'zh' ? 'zh-CN' : 'en-GB'), { weekday:'long', day:'numeric', month:'long' }).format(new Date())
-  const unreadNotifs = notifications.filter(n => !n.read).length
-
-  // ── Tab icons ───────────────────────────────────────────────────────────────
-  const NAV_TABS = [
-    { key:'HOME',       label: t('nav.home'),     icon:(c:string)=><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
-    { key:'MY_CHILD',  label: t('parent.myChildren'),  icon:(c:string)=><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-    { key:'MESSAGES',  label: t('nav.messages'),  icon:(c:string)=><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
-    { key:'PROFILE',   label: t('nav.profile'),   icon:(c:string)=><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
-  ] as const
-
-
   return (
-    <div className="mobile-wrapper">
-      <div className="mobile-theme" style={{ paddingBottom:'80px', minHeight:'100vh', overflowX:'hidden' }}>
+    <div className="parent-portal-wrapper">
 
-        {/* Bus Nearby Alert Banner */}
+      {/* ── Top Navigation Bar ─────────────────────────────────────────────── */}
+      <header className="parent-topbar">
+        <div className="parent-topbar-inner">
+          {/* Brand Logo & School */}
+          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,#FFD60A,#F5A623)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 0 16px rgba(255,214,10,0.3)', flexShrink:0 }}>
+              <Bus size={22} color="#08080A" strokeWidth={2.5}/>
+            </div>
+            <div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontWeight:800, fontSize:16, color:'#FFFFFF', letterSpacing:'-0.02em' }}>RideSafe</span>
+                <span className="parent-badge parent-badge-warning" style={{ fontSize:10, padding:'2px 8px' }}>PARENT</span>
+              </div>
+              <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', fontWeight:500 }}>{schoolName}</div>
+            </div>
+          </div>
+
+          {/* Center Navigation Pills (Desktop/Tablet) */}
+          <nav className="parent-nav-pills">
+            <button className={`parent-pill-btn ${activeTab === 'HOME' ? 'active' : ''}`} onClick={() => setActiveTab('HOME')}>
+              <Home size={15}/> {t('nav.home')}
+            </button>
+            <button className={`parent-pill-btn ${activeTab === 'MY_CHILD' ? 'active' : ''}`} onClick={() => setActiveTab('MY_CHILD')}>
+              <User size={15}/> {t('parent.myChildren')}
+            </button>
+            <button className={`parent-pill-btn ${activeTab === 'MESSAGES' ? 'active' : ''}`} onClick={() => setActiveTab('MESSAGES')}>
+              <MessageSquare size={15}/> {t('nav.messages')}
+              {messages.filter(m => !m.read).length > 0 && (
+                <span style={{ width:6, height:6, borderRadius:'50%', background:'#FF453A', display:'inline-block' }}/>
+              )}
+            </button>
+            <button className={`parent-pill-btn ${activeTab === 'PROFILE' ? 'active' : ''}`} onClick={() => setActiveTab('PROFILE')}>
+              <Settings size={15}/> {t('nav.profile')}
+            </button>
+          </nav>
+
+          {/* Right Header Actions */}
+          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            <LanguageSwitcher />
+
+            {/* Notification Bell */}
+            <button onClick={() => setActiveTab('HOME')} style={{ background:'var(--hc-surface, #141417)', border:'1px solid var(--hc-line, #26262C)', borderRadius:12, padding:8, cursor:'pointer', position:'relative', color:'var(--hc-text-2, #A6A6B2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Bell size={18}/>
+              {unreadNotifs > 0 && (
+                <span style={{ position:'absolute', top:-4, right:-4, background:'#FF453A', color:'#fff', fontSize:10, fontWeight:800, minWidth:16, height:16, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 4px', border:'2px solid #08080A' }}>
+                  {unreadNotifs}
+                </span>
+              )}
+            </button>
+
+            {/* User Profile Avatar */}
+            <div style={{ display:'flex', alignItems:'center', gap:8, paddingLeft:4 }}>
+              <div style={{ width:34, height:34, borderRadius:'50%', background:'var(--hc-surface-2, #1C1C21)', border:'1px solid var(--hc-line-strong, #3A3A43)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:'#FFD60A' }}>
+                {me?.name ? me.name.charAt(0).toUpperCase() : 'P'}
+              </div>
+              <div style={{ display:'none', flexDirection:'column' }} className="parent-user-label">
+                <span style={{ fontSize:13, fontWeight:600, color:'#FFFFFF' }}>{me?.name || 'Parent'}</span>
+              </div>
+            </div>
+
+            {/* Quick Logout Button */}
+            <button onClick={handleLogout} title="Log Out" style={{ background:'transparent', border:'none', color:'var(--hc-text-3, #6E6E7A)', cursor:'pointer', padding:6, display:'flex', alignItems:'center' }}>
+              <LogOut size={17}/>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Main Container ─────────────────────────────────────────────────── */}
+      <main className="parent-container">
+
+        {/* ── Bus Nearby Approaching Alert Banner ── */}
         <AnimatePresence>
           {busNearby && (
-            <motion.div initial={{ y:-60, opacity:0 }} animate={{ y:0, opacity:1 }} exit={{ y:-60, opacity:0 }}
-              style={{ position:'fixed', top:0, left:0, right:0, zIndex:200,
-                background:'linear-gradient(90deg,#FFD100,#F5A623)', color:'#111', padding:'10px 16px',
-                display:'flex', alignItems:'center', gap:8, fontWeight:700, fontSize:14, textAlign:'center', justifyContent:'center' }}>
-              🚌 {t('parent.busApproaching')}
-              {drivers[0]?.etaMins != null && ` • ETA ~${drivers[0].etaMins} ${t('common.minutes')}`}
+            <motion.div initial={{ opacity:0, y:-20 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-20 }}
+              style={{ background:'linear-gradient(90deg, #FFD60A, #F5A623)', color:'#08080A', padding:'14px 20px', borderRadius:16, display:'flex', alignItems:'center', justifyContent:'space-between', gap:14, marginBottom:24, boxShadow:'0 0 30px rgba(255,214,10,0.3)', fontWeight:700, fontSize:15 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                <span style={{ fontSize:24 }}>🚌</span>
+                <div>
+                  <div>{t('parent.busApproaching')} — <strong>{busNearbyStop || 'Your Stop'}</strong></div>
+                  <div style={{ fontSize:12, opacity:0.85, fontWeight:500 }}>
+                    {activeDriver?.etaMins != null ? `Estimated arrival in ~${activeDriver.etaMins} minutes.` : 'Please prepare for pickup/dropoff.'}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setShowMapModal(true)} className="parent-btn-secondary" style={{ background:'#08080A', color:'#FFD60A', border:'none', fontSize:12, padding:'6px 14px' }}>
+                View Map
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Map Modal */}
+        {/* ── Fullscreen Map Modal ── */}
         <AnimatePresence>
-          {showMap && (
-            <motion.div initial={{ opacity:0, scale:0.9 }} animate={{ opacity:1, scale:1 }} exit={{ opacity:0, scale:0.9 }}
-              style={{ position:'fixed', top:0, left:0, right:0, bottom:0, zIndex:100, background:'var(--bg-color)', display:'flex', flexDirection:'column' }}>
-              <div className="mobile-header" style={{ borderRadius:0, display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:'16px', marginBottom:0 }}>
-                <h2 style={{ margin:0, fontSize:'18px', color:'#f1f5f9' }}>{t('parent.trackBus')}</h2>
-                <button onClick={() => setShowMap(false)} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#f1f5f9', padding:'8px 16px', borderRadius:'20px', fontWeight:'bold', cursor:'pointer' }}>{t('common.close')}</button>
+          {showMapModal && (
+            <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+              style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(0,0,0,0.85)', backdropFilter:'blur(12px)', display:'flex', flexDirection:'column' }}>
+              <div style={{ background:'var(--hc-surface, #141417)', borderBottom:'1px solid var(--hc-line, #26262C)', padding:'14px 24px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <Bus size={20} color="#FFD60A"/>
+                  <h2 style={{ margin:0, fontSize:16, fontWeight:700, color:'#FFFFFF' }}>{t('parent.trackBus')} — Live GPS Telemetry</h2>
+                </div>
+                <button onClick={() => setShowMapModal(false)} className="parent-btn-secondary" style={{ padding:'6px 16px', fontSize:13 }}>
+                  {t('common.close')}
+                </button>
               </div>
               <div style={{ flex:1, position:'relative' }}>
                 {typeof window !== 'undefined' && <BusMap drivers={drivers} />}
@@ -361,557 +427,552 @@ export default function ParentDashboard() {
           )}
         </AnimatePresence>
 
-        {/* Header */}
-        <div className="mobile-header">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-            <div>
-              <div style={{ fontSize:'13px', opacity:0.65, marginBottom:'4px', color:'#e2e8f0' }}>{todayStr}</div>
-              <h1 style={{ margin:0, fontSize:'22px', fontWeight:800, color:'#fff' }}>
-                Hi, {students[0] ? students[0].name.split(' ')[1] || students[0].name.split(' ')[0] : 'Parent'}               </h1>
+        {/* ── Welcome Greeting & Date ────────────────────────────────────────── */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:24, flexWrap:'wrap', gap:12 }}>
+          <div>
+            <div style={{ fontSize:12, fontWeight:600, color:'var(--hc-text-3, #6E6E7A)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4 }}>
+              {todayStr}
             </div>
-            <div style={{ position:'relative' }}>
-              <button onClick={() => setActiveTab('MESSAGES')} style={{ background:'none', border:'none', cursor:'pointer', padding:4, position:'relative' }}>
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#111827" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                {unreadNotifs > 0 && <span style={{ position:'absolute', top:0, right:0, background:'var(--danger)', width:8, height:8, borderRadius:'50%' }} />}
-              </button>
+            <h1 style={{ margin:0, fontSize:26, fontWeight:800, color:'#FFFFFF', letterSpacing:'-0.02em' }}>
+              Hi, {primaryStudent ? primaryStudent.name.split(' ')[0] : (me?.name || 'Parent')} 👋
+            </h1>
+            <div style={{ fontSize:14, color:'var(--hc-text-2, #A6A6B2)', marginTop:4 }}>
+              Track your child&apos;s real-time transit and school communications.
             </div>
           </div>
-
-          {/* XP / Gamification Bar */}
-          <div className="streak-card" style={{ marginTop:'12px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-              <div style={{ fontWeight:700, fontSize:14, color:'#FFD100' }}>
-                Level {level} — {getLevelLabel(level)}
-              </div>
-              <div style={{ fontWeight:600, fontSize:13, color:'#F5A623' }}>{xp} XP</div>
-            </div>
-            <div className="xp-bar-track">
-              <motion.div className="xp-bar-fill" initial={{ width:0 }} animate={{ width:`${xpInLevel}%` }} />
-            </div>
-            {earnedBadges.length > 0 && (
-              <div style={{ display:'flex', gap:6, marginTop:8, flexWrap:'wrap' }}>
-                {earnedBadges.map(b => (
-                  <motion.span key={b.id} whileHover={{ scale:1.15 }}
-                    title={`${b.label} (+${b.xp} XP)`}
-                    style={{ fontSize:18, cursor:'default' }}>{b.icon}</motion.span>
-                ))}
-              </div>
-            )}
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={() => setShowMapModal(true)} className="parent-btn-primary">
+              <Navigation size={16}/> {t('parent.trackBus')}
+            </button>
           </div>
         </div>
 
-        <div style={{ padding:'16px 16px 0 16px' }}>
-
-          {/* ── HOME TAB ──────────────────────────────────────────────────────── */}
-          {activeTab === 'HOME' && (
-            <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }}>
-
-              {/* ── Delay Notice Card ── */}
-              {activeTrip && activeTrip.delayMinutes && activeTrip.delayMinutes > 0 && (
-                <motion.div initial={{ opacity:0, y:-8 }} animate={{ opacity:1, y:0 }}
-                  className="mobile-card" style={{ marginBottom:14, background:'linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05))', border:'1px solid rgba(245,158,11,0.4)', padding:'14px 16px' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <div style={{ fontSize:22 }}>⚠️</div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:700, fontSize:14, color:'var(--warning)' }}>{t('parent.delayNotice')}</div>
-                      <div style={{ fontSize:13, color:'var(--text-main)', marginTop:2 }}>
-                        {activeTrip.routeName || t('parent.assignedRoute')} {t('parent.routeRunningLate')} ~{activeTrip.delayMinutes} {t('common.minutes')}
-                        {activeTrip.delayReason ? ` (${t('common.reason')}: ${activeTrip.delayReason})` : ''}.
-                      </div>
-                    </div>
+        {/* ══════════════════════════════════════════════════════════════════════
+            TAB 1: HOME (Dashboard)
+           ══════════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'HOME' && (
+          <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.25 }}>
+            
+            {/* Delay Notice Banner */}
+            {activeTrip && activeTrip.delayMinutes && activeTrip.delayMinutes > 0 && (
+              <div style={{ background:'rgba(255,159,10,0.12)', border:'1px solid rgba(255,159,10,0.3)', borderRadius:16, padding:'16px 20px', marginBottom:24, display:'flex', alignItems:'center', gap:14 }}>
+                <div style={{ width:40, height:40, borderRadius:10, background:'rgba(255,159,10,0.2)', display:'flex', alignItems:'center', justifyContent:'center', color:'#FF9F0A', flexShrink:0 }}>
+                  <AlertTriangle size={22}/>
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:14, color:'#FF9F0A' }}>{t('parent.delayNotice')}</div>
+                  <div style={{ fontSize:13, color:'var(--hc-text-2, #A6A6B2)', marginTop:2 }}>
+                    {activeTrip.routeName || t('parent.assignedRoute')} {t('parent.routeRunningLate')} ~{activeTrip.delayMinutes} {t('common.minutes')}
+                    {activeTrip.delayReason ? ` (${t('common.reason')}: ${activeTrip.delayReason})` : ''}.
                   </div>
-                </motion.div>
-              )}
-
-              {students.map(student => (
-                <div key={student.id}>
-                  {/* Student card */}
-                  <div className="mobile-card" style={{ display:'flex', alignItems:'center', gap:'16px', marginBottom:12 }}>
-                    <div style={{ width:58, height:58, borderRadius:'50%', background:'linear-gradient(135deg,#FFD100,#F5A623)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'22px', fontWeight:800, color:'#111', boxShadow:'0 4px 10px rgba(255,209,0,0.3)', flexShrink:0 }}>
-                      {student.photoUrl ? <Image src={student.photoUrl} alt="" width={58} height={58} style={{ objectFit:'cover', borderRadius:'50%' }} /> : student.name.charAt(0)}
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <h2 style={{ margin:0, fontSize:'17px', color:'var(--text-main)' }}>{student.name}</h2>
-                      <div style={{ fontSize:'13px', color:'var(--text-muted)', marginTop:'3px' }}>{student.grade} · {student.level}</div>
-                    </div>
-                    <span className={`badge ${student.status === 'CHECKED_OUT' ? 'badge-success' : 'badge-warning'}`}>
-                      {student.status === 'CHECKED_OUT' ? t('parent.droppedOff') : t('parent.onBus')}
-                    </span>
-                  </div>
-
-                  {/* Driver info card */}
-                  {drivers[0] && (
-                    <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.1 }}
-                      className="mobile-card" style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12, padding:'12px 16px' }}>
-                      <div style={{ width:44, height:44, borderRadius:'50%', background:'var(--info-bg)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'18px' }}>‍️</div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontWeight:600, color:'var(--text-main)' }}>{drivers[0].name}</div>
-                        <div style={{ fontSize:'12px', color:'var(--text-muted)' }}>{t('parent.assignedDriver')} · {drivers[0].phone || 'No phone'}</div>
-                      </div>
-                      <div className={`badge ${drivers[0].lastLatitude ? 'badge-success' : 'badge-pending'}`} style={{ fontSize:'11px' }}>
-                        {drivers[0].lastLatitude ? '️ Online' : 'Offline'}
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {/* Live map button */}
-                  <motion.button whileTap={{ scale:0.97 }} onClick={() => setShowMap(true)}
-                    style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#FFD100,#F5A623)', color:'#111', border:'none', borderRadius:'14px', fontWeight:800, fontSize:'15px', marginBottom:'10px', display:'flex', justifyContent:'center', alignItems:'center', gap:'8px', boxShadow:'0 4px 16px rgba(255,209,0,0.4)', cursor:'pointer' }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
-                    {t('parent.trackBus')}
-                  </motion.button>
-
-                  {/* ── Two-Way Confirmation Buttons ── */}
-                  {activeTrip && (
-                    <div style={{ display:'flex', gap:8, marginBottom:14 }}>
-                      <motion.button whileTap={{ scale:0.95 }}
-                        disabled={confirming === `pickup-${student.id}`}
-                        onClick={async () => {
-                          setConfirming(`pickup-${student.id}`)
-                          try {
-                            await fetch('/api/attendance', {
-                              method:'POST', headers:{'Content-Type':'application/json'},
-                              body:JSON.stringify({ tripId: activeTrip.id, studentId: student.id, action:'PARENT_PICKUP_CONFIRMED' })
-                            })
-                            playHorn()
-                          } catch { /* silent */ } finally { setConfirming(null) }
-                        }}
-                        style={{ flex:1, padding:'11px 0', background:'rgba(16,185,129,0.15)', border:'1px solid rgba(16,185,129,0.4)', color:'var(--success)', borderRadius:12, fontWeight:700, fontSize:'13px', cursor:'pointer' }}>
-                        {confirming === `pickup-${student.id}` ? '…' : `✅ ${t('parent.confirmBoarded')}`}
-                      </motion.button>
-                      <motion.button whileTap={{ scale:0.95 }}
-                        disabled={confirming === `dropoff-${student.id}`}
-                        onClick={async () => {
-                          setConfirming(`dropoff-${student.id}`)
-                          try {
-                            await fetch('/api/attendance', {
-                              method:'POST', headers:{'Content-Type':'application/json'},
-                              body:JSON.stringify({ tripId: activeTrip.id, studentId: student.id, action:'PARENT_DROPOFF_CONFIRMED' })
-                            })
-                            playHorn()
-                          } catch { /* silent */ } finally { setConfirming(null) }
-                        }}
-                        style={{ flex:1, padding:'11px 0', background:'rgba(59,130,246,0.15)', border:'1px solid rgba(59,130,246,0.4)', color:'#60a5fa', borderRadius:12, fontWeight:700, fontSize:'13px', cursor:'pointer' }}>
-                        {confirming === `dropoff-${student.id}` ? '…' : `🏠 ${t('parent.confirmDropoff')}`}
-                      </motion.button>
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {/* Academic Calendar Card */}
-              <div style={{ marginBottom: 14 }}>
-                <CalendarCard />
-              </div>
-
-              {/* Attendance Stats */}
-              <div className="mobile-card">
-                <h3 style={{ margin:'0 0 12px 0', fontSize:'15px' }}>This Week</h3>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', textAlign:'center', gap:'8px' }}>
-                  {(() => {
-                    const arrivals = notifications.filter(n => n.type === 'INFO').length
-                    const alerts   = notifications.filter(n => n.type === 'EMERGENCY').length
-                    const warnings = notifications.filter(n => n.type === 'WARNING').length
-                    const total    = notifications.length
-                    return [
-                      { val: arrivals,         label:'Arrive', color:'var(--success)' },
-                      { val: warnings,         label:'Warning', color:'var(--warning)' },
-                      { val: alerts,           label:'Alert',  color:'var(--danger)' },
-                      { val: Math.max(0,total),label:'Total',  color:'var(--text-muted)' },
-                    ]
-                  })().map(({ val, label, color }) => (
-                    <div key={label}>
-                      <motion.div initial={{ scale:0 }} animate={{ scale:1 }} transition={{ type:'spring', bounce:0.6, delay:0.2 }}
-                        style={{ fontSize:'22px', fontWeight:800, color }}>{val}</motion.div>
-                      <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'3px' }}>{label}</div>
-                    </div>
-                  ))}
                 </div>
               </div>
+            )}
 
-              {/* Recent Notifications */}
-              <h3 style={{ fontSize:'15px', margin:'20px 0 10px 0', color:'var(--text-main)' }}>Recent Activity</h3>
-              <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
-                {notifications.slice(0, 4).map(n => (
-                  <motion.div key={n.id} initial={{ opacity:0, x:-10 }} animate={{ opacity:1, x:0 }}
-                    className="mobile-card" style={{ marginBottom:0, display:'flex', alignItems:'center', gap:'14px', padding:'12px 14px' }}>
-                    <div style={{ width:38, height:38, borderRadius:'50%',
-                      background: n.type==='EMERGENCY' ? 'rgba(239,68,68,0.1)' : n.type==='WARNING' ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)',
-                      color: n.type==='EMERGENCY' ? 'var(--danger)' : n.type==='WARNING' ? 'var(--warning)' : 'var(--success)',
-                      display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      {n.type==='EMERGENCY' ? <AlertTriangle size={20}/> : n.type==='WARNING' ? <AlertCircle size={20}/> : <CheckCircle size={20}/>}
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:'14px', fontWeight:500, color:'var(--text-main)' }}>{n.title}</div>
-                      <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'2px' }}>{new Date(n.createdAt).toLocaleString()}</div>
-                    </div>
-                  </motion.div>
-                ))}
-                {notifications.length === 0 && <div style={{ textAlign:'center', color:'var(--text-muted)', padding:20 }}>No activity yet</div>}
-              </div>
+            <div className="parent-dashboard-grid">
 
-              {/* ── SOS Panic Button ── */}
-              <motion.button
-                whileHover={{ scale:1.02 }} whileTap={{ scale:0.95 }}
-                onClick={async () => {
-                  if (!confirm('🆘 Are you sure you want to send an emergency alert?')) return
-                  playAlert()
-                  await fetch('/api/emergency', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ source:'PARENT' }) })
-                  alert('🆘 Emergency alert sent! School admin has been notified.')
-                }}
-                style={{ width:'100%', padding:'14px', marginTop:'20px', background:'linear-gradient(135deg,#dc2626,#ef4444)', color:'#fff', border:'none', borderRadius:14, fontWeight:800, fontSize:'1rem', cursor:'pointer', letterSpacing:'0.5px', boxShadow:'0 4px 20px rgba(239,68,68,0.3)' }}>
-                🆘 SOS EMERGENCY
-              </motion.button>
+              {/* ── LEFT MAIN COLUMN ── */}
+              <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
 
-              {/* ── Rate Last Ride ── */}
-              <div className="mobile-card" style={{ marginTop:14, padding:'16px' }}>
-                <div style={{ fontWeight:700, fontSize:15, marginBottom:10 }}>⭐ Rate Your Last Ride</div>
-                <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
-                  {[1,2,3,4,5].map(star => (
-                    <motion.button key={star} whileHover={{ scale:1.3 }} whileTap={{ scale:0.9 }}
-                      onClick={async () => {
-                        const res = await fetch('/api/ratings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tripId: 'latest', rating: star }) })
-                        if (res.ok) alert(`Thank you! You rated ${star} stars.`)
-                        else { const d = await res.json(); alert(d.error || 'Already rated') }
-                      }}
-                      style={{ background:'none', border:'none', fontSize:28, cursor:'pointer', filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.2))' }}>
-                      ⭐
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Green Leaderboard ── */}
-              <div className="mobile-card" style={{ marginTop:14, padding:'16px' }}>
-                <div style={{ fontWeight:700, fontSize:15, marginBottom:10 }}>Green Leaderboard</div>
-                <div style={{ display:'grid', gridTemplateColumns:'32px 1fr auto', gap:'8px', alignItems:'center' }}>
-                  {[
-                    { rank:1, name: students[0]?.name || 'You', score: Math.min(notifications.length * 12 + 85, 100), badge: <Trophy size={18}/> },
-                    { rank:2, name:'Student B', score:82, badge: <Medal size={18}/> },
-                    { rank:3, name:'Student C', score:74, badge: <Award size={18}/> },
-                  ].map(r => (
-                    <React.Fragment key={r.rank}>
-                      <div style={{ fontWeight:800, fontSize:14, color: r.rank === 1 ? '#FFD100' : 'var(--text-muted)' }}>{r.badge}</div>
-                      <div style={{ fontWeight: r.rank === 1 ? 700 : 400, color: r.rank === 1 ? 'var(--text-main)' : 'var(--text-muted)', fontSize:14 }}>{r.name}</div>
-                      <div style={{ fontWeight:700, fontSize:14, color:'var(--success)' }}>{r.score}%</div>
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Digital E-Pass ── */}
-              <div className="mobile-card" style={{ marginTop:14, padding:'16px', textAlign:'center', background:'linear-gradient(135deg, rgba(79,70,229,0.08), rgba(99,102,241,0.04))' }}>
-                <div style={{ fontWeight:700, fontSize:15, marginBottom:8 }}>Digital Boarding Pass</div>
-                <div style={{ fontFamily:'monospace', fontSize:28, letterSpacing:6, fontWeight:800, color:'var(--primary)', margin:'8px 0' }}>
-                  {(students[0]?.id || 'PASS').slice(0,8).toUpperCase()}
-                </div>
-                <div style={{ fontSize:12, color:'var(--text-muted)' }}>{students[0]?.name || 'Student'} · {new Date().toLocaleDateString()}</div>
-                <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>Show this to the driver for boarding</div>
-              </div>
-
-            </motion.div>
-          )}
-
-          {/* ── MY CHILD TAB ─────────────────────────────────────────────────── */}
-          {activeTab === 'MY_CHILD' && (
-            <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }}>
-              {students.map(student => (
-                <div key={student.id}>
-                  {/* Student ID Card */}
-                  <div className="mobile-card" style={{ padding:0, overflow:'hidden', marginBottom:14 }}>
-                    {/* Card header stripe */}
-                    <div style={{ background:'linear-gradient(135deg,#4f46e5,#6366f1)', padding:'16px', display:'flex', alignItems:'center', gap:14 }}>
-                      <div style={{ width:60, height:60, borderRadius:'50%', background:'linear-gradient(135deg,#FFD100,#F5A623)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'24px', fontWeight:800, color:'#111', border:'3px solid rgba(255,255,255,0.3)', flexShrink:0 }}>
-                        {student.name.charAt(0)}
-                      </div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontWeight:800, fontSize:18, color:'#fff' }}>{student.name}</div>
-                        <div style={{ fontSize:13, color:'rgba(255,255,255,0.75)', marginTop:2 }}>{student.grade} · {student.level}</div>
-                        <div style={{ display:'flex', gap:6, marginTop:6 }}>
-                          <span className="badge" style={{ background:'rgba(255,255,255,0.2)', color:'#fff', fontSize:'0.7rem' }}>{schoolName}</span>
-                          <span className={`badge ${student.status === 'CHECKED_OUT' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize:'0.7rem' }}>
-                            {student.status === 'CHECKED_OUT' ? 'Checked In' : 'En Route'}
-                          </span>
+                {/* Primary Student Card & Transit Status */}
+                {students.map(student => (
+                  <div key={student.id} className="parent-card">
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+                        <div style={{ width:54, height:54, borderRadius:14, background:'linear-gradient(135deg,#FFD60A,#F5A623)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, fontWeight:800, color:'#08080A', flexShrink:0, boxShadow:'0 0 16px rgba(255,214,10,0.25)' }}>
+                          {student.photoUrl ? <Image src={student.photoUrl} alt="" width={54} height={54} style={{ objectFit:'cover', borderRadius:14 }} /> : student.name.charAt(0)}
                         </div>
-                      </div>
-                    </div>
-                    {/* Info rows */}
-                    <div style={{ padding:'12px 16px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px' }}>
-                      {[
-                        { icon:<Phone size={14}/>, label:'Primary Contact', val:student.parentContact1||'—' },
-                        { icon:<Bus size={14}/>, label:'Transport', val:student.isSelfPickup?'Self-Pickup':'School Bus' },
-                        { icon:<Clock size={14}/>, label:'Pickup Time', val:student.pickupTime||'On-Route' },
-                        { icon:<Clipboard size={14}/>, label:'Student ID', val:`STU-${student.id.slice(-5).toUpperCase()}` },
-                      ].map(({ icon, label, val }) => (
-                        <div key={label}>
-                          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:2 }}>{icon} {label}</div>
-                          <div style={{ fontSize:13, fontWeight:600, color:'var(--text-main)' }}>{val}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Attendance Summary Ring + Stats */}
-                  <div className="mobile-card" style={{ marginBottom:14 }}>
-                    <h3 style={{ margin:'0 0 14px 0', fontSize:15 }}>Attendance Overview</h3>
-                    {/* Period tabs */}
-                    <div style={{ display:'flex', gap:'0.75rem', marginBottom:16, overflowX:'auto' }}>
-                      {['This Week','This Month','Semester'].map((p, i) => (
-                        <span key={p} style={{ padding:'4px 14px', borderRadius:999, fontSize:12, fontWeight:600, whiteSpace:'nowrap', cursor:'pointer',
-                          background: i===0 ? 'var(--primary)' : 'rgba(255,255,255,0.06)',
-                          color: i===0 ? '#fff' : 'var(--text-muted)' }}>{p}</span>
-                      ))}
-                    </div>
-                    {/* Stats grid */}
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
-                      {(() => {
-                        const onTime  = notifications.filter(n => n.type === 'INFO').length
-                        const late    = notifications.filter(n => n.type === 'WARNING').length
-                        const absent  = notifications.filter(n => n.type === 'EMERGENCY').length
-                        const selfPU  = student.isSelfPickup ? notifications.length : 0
-                        return [
-                          { icon:<CheckCircle size={22}/>, label:'On Time',    count: onTime,  color:'var(--success)', bg:'var(--success-bg)' },
-                          { icon:<Clock size={22}/>, label:'Late',        count: late,    color:'var(--warning)', bg:'var(--warning-bg)' },
-                          { icon:<XCircle size={22}/>, label:'Absent',      count: absent,  color:'var(--danger)',  bg:'var(--danger-bg)' },
-                          { icon:<Home size={22}/>, label:'Self Pickup', count: selfPU,  color:'var(--info)',    bg:'var(--info-bg)' },
-                        ]
-                      })().map(({ icon, label, count, color, bg }, i) => (
-                        <div key={i} style={{ background:bg, borderRadius:12, padding:'12px', display:'flex', alignItems:'center', gap:10 }}>
-                          <span style={{ display:'flex', color }}>{icon}</span>
-                          <div>
-                            <motion.div initial={{ scale:0 }} animate={{ scale:1 }} transition={{ type:'spring', bounce:0.6 }}
-                              style={{ fontSize:22, fontWeight:800, color, lineHeight:1 }}>{count}</motion.div>
-                            <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>{label}</div>
+                        <div>
+                          <h3 style={{ margin:0, fontSize:18, fontWeight:700, color:'#FFFFFF' }}>{student.name}</h3>
+                          <div style={{ fontSize:13, color:'var(--hc-text-2, #A6A6B2)', marginTop:2 }}>
+                            {student.grade} · {student.level} {student.route?.name ? `· Route: ${student.route.name}` : ''}
                           </div>
                         </div>
-                      ))}
+                      </div>
+                      <span className={`parent-badge ${student.status === 'CHECKED_OUT' ? 'parent-badge-success' : 'parent-badge-warning'}`}>
+                        {student.status === 'CHECKED_OUT' ? `✓ ${t('parent.droppedOff')}` : `🚌 ${t('parent.onBus')}`}
+                      </span>
                     </div>
-                    {/* Attendance rate bar — computed from real data */}
-                    <div style={{ marginTop:14 }}>
-                      {(() => {
-                        const total   = notifications.length
-                        const absent  = notifications.filter(n => n.type === 'EMERGENCY').length
-                        const rate    = total === 0 ? 100 : Math.round(((total - absent) / total) * 100)
-                        return (
-                          <>
-                            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6, fontSize:13 }}>
-                              <span style={{ color:'var(--text-muted)' }}>Attendance Rate</span>
-                              <span style={{ fontWeight:700, color:'var(--success)' }}>{rate}%</span>
-                            </div>
-                            <div className="xp-bar-track">
-                              <motion.div className="xp-bar-fill" initial={{ width:0 }} animate={{ width:`${rate}%` }}
-                                style={{ background:'linear-gradient(90deg,var(--success),#34d399)' }} />
-                            </div>
-                          </>
-                        )
-                      })()}
-                    </div>
-                  </div>
 
-                  {/* Activity Timeline */}
-                  <h3 style={{ fontSize:15, margin:'0 0 12px 0', color:'var(--text-main)' }}>️ Activity Log</h3>
-                  <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                    {notifications.length === 0 && (
-                      <div className="mobile-card" style={{ textAlign:'center', color:'var(--text-muted)', padding:24, marginBottom:0 }}>
-                        No activity recorded yet for {student.name}.
+                    {/* Transit Stop Route details */}
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:12, padding:'14px', background:'var(--hc-surface-2, #1C1C21)', borderRadius:14, marginBottom:16 }}>
+                      <div>
+                        <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', fontWeight:600, textTransform:'uppercase', marginBottom:2 }}>Pickup Stop</div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#FFFFFF', display:'flex', alignItems:'center', gap:6 }}>
+                          <MapPin size={14} color="#FFD60A"/> {student.pickupStop?.name || 'School Gate'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', fontWeight:600, textTransform:'uppercase', marginBottom:2 }}>Drop-off Stop</div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#FFFFFF', display:'flex', alignItems:'center', gap:6 }}>
+                          <Home size={14} color="#4D8DFF"/> {student.dropoffStop?.name || 'Home Address'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', fontWeight:600, textTransform:'uppercase', marginBottom:2 }}>Pickup Time</div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#FFFFFF', display:'flex', alignItems:'center', gap:6 }}>
+                          <Clock size={14} color="#2FD16B"/> {student.pickupTime || '07:30 AM'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Two-Way Confirmation Action Buttons */}
+                    {activeTrip && (
+                      <div style={{ display:'flex', gap:10, paddingTop:6, borderTop:'1px solid var(--hc-line, #26262C)' }}>
+                        <button
+                          disabled={confirming === `pickup-${student.id}`}
+                          onClick={async () => {
+                            setConfirming(`pickup-${student.id}`)
+                            try {
+                              await fetch('/api/attendance', {
+                                method:'POST', headers:{'Content-Type':'application/json'},
+                                body:JSON.stringify({ tripId: activeTrip.id, studentId: student.id, action:'PARENT_PICKUP_CONFIRMED' })
+                              })
+                              playHorn()
+                            } catch { /* silent */ } finally { setConfirming(null) }
+                          }}
+                          className="parent-btn-secondary"
+                          style={{ flex:1, borderColor:'rgba(47,209,107,0.3)', color:'#2FD16B' }}>
+                          {confirming === `pickup-${student.id}` ? 'Confirming…' : `✓ ${t('parent.confirmBoarded')}`}
+                        </button>
+                        <button
+                          disabled={confirming === `dropoff-${student.id}`}
+                          onClick={async () => {
+                            setConfirming(`dropoff-${student.id}`)
+                            try {
+                              await fetch('/api/attendance', {
+                                method:'POST', headers:{'Content-Type':'application/json'},
+                                body:JSON.stringify({ tripId: activeTrip.id, studentId: student.id, action:'PARENT_DROPOFF_CONFIRMED' })
+                              })
+                              playHorn()
+                            } catch { /* silent */ } finally { setConfirming(null) }
+                          }}
+                          className="parent-btn-secondary"
+                          style={{ flex:1, borderColor:'rgba(77,141,255,0.3)', color:'#4D8DFF' }}>
+                          {confirming === `dropoff-${student.id}` ? 'Confirming…' : `🏠 ${t('parent.confirmDropoff')}`}
+                        </button>
                       </div>
                     )}
-                    {notifications.map((n, i) => (
-                      <div key={n.id} style={{ display:'flex', gap:12 }}>
-                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
-                          <div style={{ width:32, height:32, borderRadius:'50%', flexShrink:0,
-                            background: n.type==='EMERGENCY' ? 'rgba(239,68,68,0.15)' : n.type==='WARNING' ? 'var(--warning-bg)' : 'var(--success-bg)',
-                            display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>
-                            {n.type==='EMERGENCY' ? '' : n.type==='WARNING' ? '️' : ''}
+                  </div>
+                ))}
+
+                {/* Live Driver & GPS Telemetry Card */}
+                {activeDriver && (
+                  <div className="parent-card">
+                    <div className="parent-card-header">
+                      <div className="parent-card-title">
+                        <Navigation size={18} color="#FFD60A"/> Live Bus Telemetry
+                      </div>
+                      <span className={`parent-badge ${activeDriver.lastLatitude ? 'parent-badge-success' : 'parent-badge-neutral'}`}>
+                        {activeDriver.lastLatitude ? '● Live Telemetry' : '○ Offline'}
+                      </span>
+                    </div>
+
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:16, marginBottom:16 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                        <div style={{ width:44, height:44, borderRadius:12, background:'var(--hc-surface-2, #1C1C21)', border:'1px solid var(--hc-line, #26262C)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>
+                          🧑‍✈️
+                        </div>
+                        <div>
+                          <div style={{ fontSize:15, fontWeight:700, color:'#FFFFFF' }}>{activeDriver.name}</div>
+                          <div style={{ fontSize:12, color:'var(--hc-text-2, #A6A6B2)' }}>
+                            {t('parent.assignedDriver')} {activeDriver.phone ? `· ${activeDriver.phone}` : ''}
                           </div>
-                          {i < notifications.length-1 && <div style={{ width:2, flex:1, background:'var(--surface-border)', marginTop:4 }} />}
                         </div>
-                        <div style={{ flex:1, paddingBottom:8 }}>
-                          <div style={{ fontSize:14, fontWeight:600, color:'var(--text-main)' }}>{n.title}</div>
-                          {n.body && <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>{n.body}</div>}
-                          <div style={{ fontSize:11, color:'var(--text-dim)', marginTop:4 }}>{new Date(n.createdAt).toLocaleString()}</div>
+                      </div>
+                      {activeDriver.phone && (
+                        <a href={`tel:${activeDriver.phone}`} className="parent-btn-secondary" style={{ padding:'8px 14px', fontSize:13 }}>
+                          <Phone size={14}/> Call Driver
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Telemetry Stats Grid */}
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10, textAlign:'center' }}>
+                      <div style={{ background:'var(--hc-surface-2, #1C1C21)', padding:'12px', borderRadius:12 }}>
+                        <div style={{ fontSize:18, fontWeight:800, color:'#FFD60A' }}>
+                          {activeDriver.currentSpeedKmH ? `${Math.round(activeDriver.currentSpeedKmH)} km/h` : '—'}
                         </div>
+                        <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', marginTop:2 }}>Current Speed</div>
+                      </div>
+                      <div style={{ background:'var(--hc-surface-2, #1C1C21)', padding:'12px', borderRadius:12 }}>
+                        <div style={{ fontSize:18, fontWeight:800, color:'#2FD16B' }}>
+                          {activeDriver.etaMins != null ? `~${activeDriver.etaMins} mins` : 'Calculating'}
+                        </div>
+                        <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', marginTop:2 }}>Estimated Arrival</div>
+                      </div>
+                      <div style={{ background:'var(--hc-surface-2, #1C1C21)', padding:'12px', borderRadius:12 }}>
+                        <div style={{ fontSize:18, fontWeight:800, color:'#4D8DFF' }}>
+                          {activeDriver.distanceKm != null ? `${activeDriver.distanceKm.toFixed(1)} km` : '—'}
+                        </div>
+                        <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', marginTop:2 }}>Distance to School</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Academic Calendar Widget */}
+                <div>
+                  <CalendarCard />
+                </div>
+              </div>
+
+              {/* ── RIGHT SIDEBAR COLUMN ── */}
+              <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
+
+                {/* Gamification Level & Streak Card */}
+                <div className="parent-card">
+                  <div className="parent-card-header">
+                    <div className="parent-card-title">
+                      <Sparkles size={18} color="#FFD60A"/> Rider Safety Streak
+                    </div>
+                    <span className="parent-badge parent-badge-warning">{xp} XP</span>
+                  </div>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#FFFFFF' }}>
+                    Level {level} — <span style={{ color:'#FFD60A' }}>{getLevelLabel(level)}</span>
+                  </div>
+                  <div className="parent-streak-bar">
+                    <motion.div className="parent-streak-fill" initial={{ width:0 }} animate={{ width:`${xpInLevel}%` }}/>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--hc-text-3, #6E6E7A)', marginTop:4 }}>
+                    <span>{xpInLevel} / 100 XP to next tier</span>
+                    <span>{100 - xpInLevel} XP remaining</span>
+                  </div>
+                  {earnedBadges.length > 0 && (
+                    <div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap' }}>
+                      {earnedBadges.map(b => (
+                        <div key={b.id} title={`${b.label} (+${b.xp} XP)`} style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', background:'var(--hc-surface-2, #1C1C21)', borderRadius:8, fontSize:12, color:'#FFFFFF', border:'1px solid var(--hc-line, #26262C)' }}>
+                          <span style={{ color:'#FFD60A' }}>{b.icon}</span> {b.label}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Digital Boarding Pass */}
+                <div className="parent-card" style={{ textAlign:'center', background:'linear-gradient(145deg, #141417, #1C1C21)' }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:'var(--hc-text-3, #6E6E7A)', textTransform:'uppercase', letterSpacing:'0.05em' }}>
+                    Digital Boarding Pass
+                  </div>
+                  <div style={{ fontFamily:'var(--hc-mono, monospace)', fontSize:28, fontWeight:800, letterSpacing:'4px', color:'#FFD60A', margin:'12px 0' }}>
+                    {(primaryStudent?.id || 'PASS').slice(0,8).toUpperCase()}
+                  </div>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#FFFFFF' }}>{primaryStudent?.name || 'Student'}</div>
+                  <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', marginTop:2 }}>Show this token to driver for boarding verification</div>
+                </div>
+
+                {/* Weekly Attendance Stats Snapshot */}
+                <div className="parent-card">
+                  <div className="parent-card-header">
+                    <div className="parent-card-title">
+                      <Clock size={16} color="#FFD60A"/> Transit Activity
+                    </div>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, textAlign:'center' }}>
+                    {[
+                      { val: notifications.filter(n => n.type === 'INFO').length, label:'Arrived', color:'#2FD16B' },
+                      { val: notifications.filter(n => n.type === 'WARNING').length, label:'Notice', color:'#FF9F0A' },
+                      { val: notifications.filter(n => n.type === 'EMERGENCY').length, label:'Alert', color:'#FF453A' },
+                      { val: notifications.length, label:'Total', color:'var(--hc-text-2, #A6A6B2)' },
+                    ].map(({ val, label, color }) => (
+                      <div key={label} style={{ background:'var(--hc-surface-2, #1C1C21)', padding:'10px 6px', borderRadius:10 }}>
+                        <div style={{ fontSize:18, fontWeight:800, color }}>{val}</div>
+                        <div style={{ fontSize:10, color:'var(--hc-text-3, #6E6E7A)', marginTop:2 }}>{label}</div>
                       </div>
                     ))}
                   </div>
                 </div>
-              ))}
-              {students.length === 0 && (
-                <div className="mobile-card" style={{ textAlign:'center', padding:32 }}>
-                  <div style={{ fontSize:36 }}></div>
-                  <div style={{ fontWeight:600, marginTop:8 }}>No child linked yet</div>
-                  <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:4 }}>Contact your school admin to link your child&apos;s account.</div>
-                </div>
-              )}
-            </motion.div>
-          )}
 
-
-          {/* ── MESSAGES TAB ──────────────────────────────────────────────────── */}
-          {activeTab === 'MESSAGES' && (
-            <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }}>
-              <AnimatePresence>
-                {msgToast && (
-                  <motion.div initial={{ opacity:0, y:-10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}
-                    style={{ padding:'0.75rem 1rem', background: msgToast.startsWith('') ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                      border:`1px solid ${msgToast.startsWith('') ? 'var(--success)' : 'var(--danger)'}`,
-                      borderRadius:12, color:'var(--text-main)', fontWeight:500, marginBottom:12, fontSize:14 }}>
-                    {msgToast}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Compose */}
-              <div className="mobile-card" style={{ marginBottom:14 }}>
-                <h3 style={{ margin:'0 0 12px 0', fontSize:'15px' }}>️ Send message to school</h3>
-                <textarea className="input-field"
-                  placeholder="e.g. My child is sick today and won&apos;t be attending school. Please inform the driver."
-                  value={msgContent} onChange={e => setMsgContent(e.target.value)} rows={3}
-                  style={{ resize:'none', fontFamily:'inherit', lineHeight:'1.5', fontSize:14, background:'rgba(0,0,0,0.2)' }} />
-                <motion.button whileTap={{ scale:0.97 }} onClick={sendMessage} disabled={sending}
-                  style={{ marginTop:10, width:'100%', padding:'12px', background:'linear-gradient(135deg,#4f46e5,#6366f1)', color:'#fff', border:'none', borderRadius:12, fontWeight:700, fontSize:14, cursor:'pointer' }}>
-                  {sending ? 'Sending…' : 'Send to School Admin'}
-                </motion.button>
-              </div>
-
-              {/* Messages list */}
-              <h3 style={{ fontSize:'15px', margin:'0 0 10px 0' }}>Inbox</h3>
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                {messages.slice(0,10).map(m => (
-                  <motion.div key={m.id} initial={{ opacity:0 }} animate={{ opacity:1 }}
-                    style={{ padding:'12px 14px', background:'rgba(255,255,255,0.03)', borderRadius:12,
-                      borderLeft:'3px solid var(--primary)', border:'1px solid var(--surface-border)' }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                      <strong style={{ fontSize:13 }}>{m.sender.name}</strong>
-                      <span style={{ fontSize:11, color:'var(--text-muted)' }}>{new Date(m.createdAt).toLocaleDateString()}</span>
-                    </div>
-                    <p style={{ margin:0, fontSize:13, color:'rgba(255,255,255,0.8)', lineHeight:'1.5' }}>{m.content}</p>
-                  </motion.div>
-                ))}
-                {messages.length === 0 && <div style={{ textAlign:'center', color:'var(--text-muted)', padding:20 }}>No messages yet</div>}
-              </div>
-            </motion.div>
-          )}
-
-          {/* ── PROFILE TAB ───────────────────────────────────────────────────── */}
-          {activeTab === 'PROFILE' && (
-            <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }}>
-              {students.map(student => (
-                <div key={student.id} className="mobile-card" style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'24px 16px', marginBottom:14 }}>
-                  <div style={{ width:80, height:80, borderRadius:'50%', background:'linear-gradient(135deg,#FFD100,#F5A623)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'32px', fontWeight:800, color:'#111', marginBottom:12, boxShadow:'0 8px 20px rgba(255,209,0,0.3)' }}>
-                    {student.photoUrl ? <Image src={student.photoUrl} alt="" width={80} height={80} style={{ objectFit:'cover', borderRadius:'50%' }} /> : student.name.charAt(0)}
+                {/* Rate Last Ride */}
+                <div className="parent-card" style={{ textAlign:'center' }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#FFFFFF', marginBottom:8 }}>Rate Your Last Ride</div>
+                  <div style={{ fontSize:12, color:'var(--hc-text-2, #A6A6B2)', marginBottom:12 }}>How was your child&apos;s trip today?</div>
+                  <div style={{ display:'flex', justifyContent:'center', gap:8 }}>
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <motion.button key={star} whileHover={{ scale:1.25 }} whileTap={{ scale:0.9 }}
+                        onClick={async () => {
+                          const res = await fetch('/api/ratings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tripId: 'latest', rating: star }) })
+                          if (res.ok) alert(`Thank you! You rated ${star} stars.`)
+                          else { const d = await res.json(); alert(d.error || 'Already rated') }
+                        }}
+                        style={{ background:'none', border:'none', fontSize:24, cursor:'pointer' }}>
+                        ⭐
+                      </motion.button>
+                    ))}
                   </div>
-                  <h2 style={{ margin:0, fontSize:'20px', color:'var(--text-main)' }}>{student.name}</h2>
-                  <div style={{ fontSize:'14px', color:'var(--text-muted)', marginTop:4 }}>{student.grade} · Level {student.level}</div>
+                </div>
 
-                  {/* Gamification summary */}
-                  <div className="streak-card" style={{ width:'100%', marginTop:16, textAlign:'center' }}>
-                    <div style={{ fontSize:13, color:'var(--text-muted)' }}>Rider Level</div>
-                    <div style={{ fontSize:'1.5rem', fontWeight:800, color:'var(--bus-yellow)' }}>Level {level} — {getLevelLabel(level)}</div>
-                    <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:2 }}>{xp} XP total · {100-xpInLevel} XP to next level</div>
-                    <div style={{ display:'flex', justifyContent:'center', gap:8, marginTop:10, flexWrap:'wrap' }}>
-                      {BADGES.map((b, i) => (
-                        <motion.div key={b.id} whileHover={{ scale:1.2 }} title={b.label}
-                          style={{ fontSize:22, filter: i<earnedBadges.length ? 'none' : 'grayscale(1) opacity(0.3)', cursor:'default' }}>
-                          {b.icon}
-                        </motion.div>
+                {/* Emergency Panic SOS Button */}
+                <button
+                  onClick={async () => {
+                    if (!confirm('🆘 Are you sure you want to send an emergency alert to school dispatch?')) return
+                    playAlert()
+                    await fetch('/api/emergency', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ source:'PARENT' }) })
+                    alert('🆘 Emergency alert sent! School dispatch and transport administration have been notified.')
+                  }}
+                  style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg, #FF453A, #D70015)', color:'#FFFFFF', border:'none', borderRadius:14, fontWeight:800, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 4px 20px rgba(255,69,58,0.35)' }}>
+                  <Shield size={18}/> SOS EMERGENCY ALERT
+                </button>
+
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            TAB 2: MY CHILD
+           ══════════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'MY_CHILD' && (
+          <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.25 }} style={{ maxWidth:840, margin:'0 auto' }}>
+            {students.map(student => (
+              <div key={student.id} style={{ display:'flex', flexDirection:'column', gap:20 }}>
+                
+                {/* ID Header Card */}
+                <div className="parent-card" style={{ background:'linear-gradient(135deg, #141417, #1C1C21)', border:'1px solid var(--hc-line-strong, #3A3A43)' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:18 }}>
+                    <div style={{ width:68, height:68, borderRadius:16, background:'linear-gradient(135deg,#FFD60A,#F5A623)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, fontWeight:800, color:'#08080A', flexShrink:0 }}>
+                      {student.name.charAt(0)}
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:'#FFFFFF' }}>{student.name}</h2>
+                        <span className="parent-badge parent-badge-success">{student.status === 'CHECKED_OUT' ? 'Checked In' : 'En Route'}</span>
+                      </div>
+                      <div style={{ fontSize:14, color:'var(--hc-text-2, #A6A6B2)', marginTop:4 }}>
+                        {student.grade} · {student.level} · Student ID: STU-{student.id.slice(-6).toUpperCase()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Details Breakdown */}
+                <div className="parent-card">
+                  <div className="parent-card-header">
+                    <div className="parent-card-title"><Clipboard size={18} color="#FFD60A"/> Student Profile Details</div>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:16 }}>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', fontWeight:600, textTransform:'uppercase' }}>Primary Guardian</div>
+                      <div style={{ fontSize:14, fontWeight:600, color:'#FFFFFF', marginTop:3 }}>{student.parentContact1 || '—'}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', fontWeight:600, textTransform:'uppercase' }}>Transport Mode</div>
+                      <div style={{ fontSize:14, fontWeight:600, color:'#FFFFFF', marginTop:3 }}>{student.isSelfPickup ? 'Self-Pickup' : 'School Fleet Bus'}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', fontWeight:600, textTransform:'uppercase' }}>Designated Route</div>
+                      <div style={{ fontSize:14, fontWeight:600, color:'#FFFFFF', marginTop:3 }}>{student.route?.name || 'Default Route'}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', fontWeight:600, textTransform:'uppercase' }}>Pickup Stop</div>
+                      <div style={{ fontSize:14, fontWeight:600, color:'#FFFFFF', marginTop:3 }}>{student.pickupStop?.name || 'Main Gate'}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Activity Feed */}
+                <div className="parent-card">
+                  <div className="parent-card-header">
+                    <div className="parent-card-title"><Clock size={18} color="#FFD60A"/> Recent Transit Timeline</div>
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div style={{ textAlign:'center', color:'var(--hc-text-3, #6E6E7A)', padding:24 }}>No activity records available yet.</div>
+                  ) : (
+                    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                      {notifications.slice(0, 5).map(n => (
+                        <div key={n.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 14px', background:'var(--hc-surface-2, #1C1C21)', borderRadius:12 }}>
+                          <div style={{ width:34, height:34, borderRadius:8, background:'rgba(255,214,10,0.1)', color:'#FFD60A', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                            {n.type === 'EMERGENCY' ? <AlertTriangle size={18} color="#FF453A"/> : <CheckCircle size={18} color="#2FD16B"/>}
+                          </div>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:14, fontWeight:600, color:'#FFFFFF' }}>{n.title}</div>
+                            <div style={{ fontSize:12, color:'var(--hc-text-2, #A6A6B2)', marginTop:2 }}>{n.body}</div>
+                          </div>
+                          <div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)', flexShrink:0 }}>
+                            {new Date(n.createdAt).toLocaleDateString()}
+                          </div>
+                        </div>
                       ))}
                     </div>
+                  )}
+                </div>
+
+              </div>
+            ))}
+          </motion.div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            TAB 3: MESSAGES
+           ══════════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'MESSAGES' && (
+          <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.25 }} style={{ maxWidth:840, margin:'0 auto', display:'flex', flexDirection:'column', gap:20 }}>
+            <AnimatePresence>
+              {msgToast && (
+                <motion.div initial={{ opacity:0, y:-10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}
+                  style={{ padding:'12px 16px', background:'rgba(47,209,107,0.15)', border:'1px solid rgba(47,209,107,0.4)', borderRadius:12, color:'#2FD16B', fontWeight:600, fontSize:14 }}>
+                  {msgToast}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Compose Message Box */}
+            <div className="parent-card">
+              <div className="parent-card-header">
+                <div className="parent-card-title"><MessageSquare size={18} color="#FFD60A"/> Send Message to School Dispatch</div>
+              </div>
+              <div style={{ display:'flex', gap:8, marginBottom:12, flexWrap:'wrap' }}>
+                {['Child is sick today', 'Running 5 minutes late', 'Parent pickup today', 'Lost bottle on bus'].map(preset => (
+                  <button key={preset} onClick={() => setMsgContent(preset)} style={{ background:'var(--hc-surface-2, #1C1C21)', border:'1px solid var(--hc-line, #26262C)', color:'var(--hc-text-2, #A6A6B2)', borderRadius:9999, padding:'4px 12px', fontSize:12, cursor:'pointer' }}>
+                    + {preset}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                rows={4}
+                value={msgContent}
+                onChange={e => setMsgContent(e.target.value)}
+                placeholder="Type your message to the transport coordinator..."
+                style={{ width:'100%', background:'var(--hc-surface-2, #1C1C21)', border:'1px solid var(--hc-line, #26262C)', borderRadius:12, padding:'14px', color:'#FFFFFF', fontSize:14, outline:'none', resize:'none', fontFamily:'inherit' }}
+              />
+              <div style={{ display:'flex', justifyContent:'flex-end', marginTop:12 }}>
+                <button onClick={sendMessage} disabled={sending} className="parent-btn-primary">
+                  <Send size={15}/> {sending ? 'Sending…' : 'Send to Dispatch'}
+                </button>
+              </div>
+            </div>
+
+            {/* Inbox Thread */}
+            <div className="parent-card">
+              <div className="parent-card-header">
+                <div className="parent-card-title"><Clock size={16} color="#FFD60A"/> Conversation History</div>
+              </div>
+              {messages.length === 0 ? (
+                <div style={{ textAlign:'center', color:'var(--hc-text-3, #6E6E7A)', padding:32 }}>No communications yet.</div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {messages.map(m => (
+                    <div key={m.id} style={{ padding:'14px 16px', background:'var(--hc-surface-2, #1C1C21)', borderRadius:14, borderLeft:'3px solid #FFD60A' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                        <span style={{ fontSize:13, fontWeight:700, color:'#FFFFFF' }}>{m.sender?.name || 'School Admin'}</span>
+                        <span style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)' }}>{new Date(m.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <div style={{ fontSize:14, color:'var(--hc-text-2, #A6A6B2)', lineHeight:1.5 }}>{m.content}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            TAB 4: PROFILE & SETTINGS
+           ══════════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'PROFILE' && (
+          <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.25 }} style={{ maxWidth:720, margin:'0 auto', display:'flex', flexDirection:'column', gap:20 }}>
+            {/* User Account Overview */}
+            <div className="parent-card" style={{ textAlign:'center', padding:'32px 20px' }}>
+              <div style={{ width:76, height:76, borderRadius:'50%', background:'linear-gradient(135deg,#FFD60A,#F5A623)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32, fontWeight:800, color:'#08080A', margin:'0 auto 16px', boxShadow:'0 0 24px rgba(255,214,10,0.3)' }}>
+                {me?.name ? me.name.charAt(0).toUpperCase() : 'P'}
+              </div>
+              <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:'#FFFFFF' }}>{me?.name || 'Parent Guardian'}</h2>
+              <div style={{ fontSize:14, color:'var(--hc-text-2, #A6A6B2)', marginTop:4 }}>{me?.email}</div>
+              <div style={{ display:'flex', justifyContent:'center', gap:8, marginTop:12 }}>
+                <span className="parent-badge parent-badge-warning">VERIFIED GUARDIAN</span>
+                <span className="parent-badge parent-badge-neutral">{schoolName}</span>
+              </div>
+            </div>
+
+            {/* Settings Options List */}
+            <div className="parent-card" style={{ padding:0, overflow:'hidden' }}>
+              {[
+                { icon:<User size={18}/>, title:'Account Information', desc:'View your registered contact info', action:() => setProfilePanel(p => p === 'INFO' ? null : 'INFO') },
+                { icon:<Globe size={18}/>, title:'Language Preferences', desc:'English, Bahasa Malaysia, 中文', action:() => setProfilePanel(p => p === 'LANG' ? null : 'LANG') },
+                { icon:<HelpCircle size={18}/>, title:'Help & Support', desc:'Contact transport dispatch office', action:() => setProfilePanel(p => p === 'HELP' ? null : 'HELP') },
+              ].map((item, idx) => (
+                <div key={item.title} onClick={item.action} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 20px', borderBottom: idx < 2 ? '1px solid var(--hc-line, #26262C)' : 'none', cursor:'pointer' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+                    <div style={{ width:38, height:38, borderRadius:10, background:'var(--hc-surface-2, #1C1C21)', display:'flex', alignItems:'center', justifyContent:'center', color:'#FFD60A' }}>
+                      {item.icon}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:15, fontWeight:600, color:'#FFFFFF' }}>{item.title}</div>
+                      <div style={{ fontSize:12, color:'var(--hc-text-3, #6E6E7A)' }}>{item.desc}</div>
+                    </div>
                   </div>
+                  <ChevronRight size={18} color="var(--hc-text-3, #6E6E7A)"/>
                 </div>
               ))}
+            </div>
 
-              <div style={{ background:'var(--surface)', border:'1px solid var(--surface-border)', borderRadius:16, overflow:'hidden', boxShadow:'0 1px 3px rgba(0,0,0,0.05)' }}>
-                {[
-                  { icon:<User size={20}/>, label:'Personal Information', onClick: () => setProfilePanel(p => p === 'INFO' ? null : 'INFO') },
-                  { icon:<Settings size={20}/>, label:'Settings & Preferences', onClick: () => showProfileNotice('Settings & Preferences is coming soon') },
-                  { icon:<Bell size={20}/>, label:'Notification Settings', onClick: () => showProfileNotice('Notification Settings is coming soon — see Home for your activity feed') },
-                  { icon:<HelpCircle size={20}/>, label:'Help Center', onClick: () => setProfilePanel(p => p === 'HELP' ? null : 'HELP') },
-                ].map(({ icon, label, onClick }, i, arr) => (
-                  <div key={label} style={{ display:'flex', alignItems:'center', padding:'18px 16px', borderBottom: i<arr.length-1 ? '1px solid var(--surface-border)' : 'none', cursor:'pointer' }}
-                    onClick={onClick}>
-                    <span style={{ fontSize:20, marginRight:14 }}>{icon}</span>
-                    <div style={{ flex:1, fontSize:'15px', fontWeight:500 }}>{label}</div>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"
-                      style={{ transform: (label === 'Personal Information' && profilePanel === 'INFO') || (label === 'Help Center' && profilePanel === 'HELP') ? 'rotate(90deg)' : 'none', transition:'transform 0.15s' }}>
-                      <polyline points="9 18 15 12 9 6"/>
-                    </svg>
-                  </div>
-                ))}
-                <div onClick={handleLogout} style={{ display:'flex', alignItems:'center', padding:'18px 16px', cursor:'pointer', background:'rgba(239,68,68,0.05)' }}>
-                  <span style={{ display:'flex', marginRight:14 }}><LogOut size={20} color="var(--danger)"/></span>
-                  <div style={{ flex:1, fontSize:'15px', fontWeight:500, color:'var(--danger)' }}>Log Out</div>
+            {/* Profile Drawer: Info */}
+            {profilePanel === 'INFO' && (
+              <div className="parent-card">
+                <h4 style={{ margin:'0 0 14px 0', fontSize:15, color:'#FFFFFF' }}>Account Details</h4>
+                <div style={{ display:'grid', gap:12 }}>
+                  <div><div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)' }}>NAME</div><div style={{ fontSize:14, fontWeight:600 }}>{me?.name}</div></div>
+                  <div><div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)' }}>EMAIL</div><div style={{ fontSize:14 }}>{me?.email}</div></div>
+                  {me?.phone && <div><div style={{ fontSize:11, color:'var(--hc-text-3, #6E6E7A)' }}>PHONE</div><div style={{ fontSize:14 }}>{me?.phone}</div></div>}
                 </div>
               </div>
+            )}
 
-              {profileNotice && (
-                <motion.div initial={{ opacity:0, y:-6 }} animate={{ opacity:1, y:0 }}
-                  style={{ marginTop:10, padding:'10px 14px', borderRadius:10, background:'var(--surface-2)', color:'var(--text-muted)', fontSize:13, textAlign:'center' }}>
-                  {profileNotice}
-                </motion.div>
-              )}
-
-              {profilePanel === 'INFO' && (
-                <motion.div initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:'auto' }} className="mobile-card" style={{ padding:'18px 16px', marginTop:10 }}>
-                  {me ? (
-                    <div style={{ display:'grid', gap:10 }}>
-                      <div><div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.05em' }}>Name</div><div style={{ fontSize:15, fontWeight:600 }}>{me.name}</div></div>
-                      <div><div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.05em' }}>Email</div><div style={{ fontSize:15 }}>{me.email}</div></div>
-                      {me.phone && <div><div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.05em' }}>Phone</div><div style={{ fontSize:15 }}>{me.phone}</div></div>}
-                      <div style={{ fontSize:12, color:'var(--text-dim)', marginTop:4 }}>Contact the school (via Messages) to update your details.</div>
-                    </div>
-                  ) : <div style={{ color:'var(--text-muted)', fontSize:14 }}>Loading…</div>}
-                </motion.div>
-              )}
-
-              {profilePanel === 'HELP' && (
-                <motion.div initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:'auto' }} className="mobile-card" style={{ padding:'18px 16px', marginTop:10 }}>
-                  <div style={{ fontSize:14, lineHeight:1.6, color:'var(--text-main)' }}>
-                    Need help with pickup times, routes, or your child&apos;s account? Use the <strong>Messages</strong> tab to reach the transport office directly — that&apos;s the fastest way to get a response.
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Language Selector */}
-              <div className="mobile-card" style={{ padding:'16px', marginTop:14 }}>
-                <div style={{ fontWeight:700, fontSize:15, marginBottom:10, display:'flex', alignItems:'center', gap:6 }}><Globe size={18}/> Language / Bahasa / 语言</div>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            {/* Profile Drawer: Language */}
+            {profilePanel === 'LANG' && (
+              <div className="parent-card">
+                <h4 style={{ margin:'0 0 14px 0', fontSize:15, color:'#FFFFFF' }}>Choose Language</h4>
+                <div style={{ display:'flex', gap:10 }}>
                   {[
-                    { code:'en' as const, label:'EN', fullName:'English' },
-                    { code:'ms' as const, label:'MS', fullName:'Bahasa Malaysia' },
-                    { code:'zh' as const, label:'ZH', fullName:'中文' },
+                    { code:'en' as const, label:'English' },
+                    { code:'ms' as const, label:'Bahasa Malaysia' },
+                    { code:'zh' as const, label:'中文' },
                   ].map(l => (
-                    <motion.button key={l.code} whileTap={{ scale:0.95 }}
-                      onClick={() => setLocale(l.code)}
-                      style={{ padding:'8px 14px', background: locale === l.code ? 'var(--primary)' : 'var(--surface-2)', color: locale === l.code ? '#fff' : 'var(--text-main)', border: locale === l.code ? 'none' : '1px solid var(--surface-border)', borderRadius:8, cursor:'pointer', fontWeight: locale === l.code ? 700 : 500, fontSize:13 }}>
-                      {l.label} <span style={{ opacity:0.6, fontSize:11, marginLeft:4 }}>{l.fullName}</span>
-                    </motion.button>
+                    <button key={l.code} onClick={() => setLocale(l.code)} className={locale === l.code ? 'parent-btn-primary' : 'parent-btn-secondary'} style={{ flex:1, padding:'10px' }}>
+                      {l.label}
+                    </button>
                   ))}
                 </div>
               </div>
-            </motion.div>
-          )}
+            )}
 
-        </div>
+            {/* Profile Drawer: Help */}
+            {profilePanel === 'HELP' && (
+              <div className="parent-card">
+                <h4 style={{ margin:'0 0 10px 0', fontSize:15, color:'#FFFFFF' }}>School Dispatch Support</h4>
+                <p style={{ fontSize:13, color:'var(--hc-text-2, #A6A6B2)', lineHeight:1.6, margin:0 }}>
+                  Need urgent help with pickup schedules, driver contacts, or routing changes? Send a direct message in the <strong>Messages</strong> tab or contact your school transport administration office.
+                </p>
+              </div>
+            )}
 
-        {/* Bottom Navigation */}
-        <div className="mobile-nav">
-          {NAV_TABS.map(tab => {
-            const isActive = activeTab === tab.key
-            const color = isActive ? 'var(--bus-yellow)' : '#BDBDBD'
-            return (
-              <button key={tab.key} className={`nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab.key)} style={{ position:'relative' }}>
-                {tab.icon(color)}
-                <span style={{ color }}>{tab.label}</span>
-                {tab.key === 'MESSAGES' && messages.filter(m=>!m.read).length > 0 && (
-                  <span style={{ position:'absolute', top:6, right:'50%', transform:'translateX(8px)', background:'var(--danger)', borderRadius:'50%', width:8, height:8, display:'block' }} />
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
+            {/* Logout Action */}
+            <button onClick={handleLogout} className="parent-btn-secondary" style={{ borderColor:'rgba(255,69,58,0.4)', color:'#FF453A', padding:'14px', borderRadius:14, fontWeight:700 }}>
+              <LogOut size={16}/> Sign Out of RideSafe
+            </button>
+          </motion.div>
+        )}
+
+      </main>
+
+      {/* ── Mobile Floating Bottom Bar ──────────────────────────────────────── */}
+      <nav className="parent-mobile-bottom-nav">
+        {[
+          { key:'HOME', label: t('nav.home'), icon: Home },
+          { key:'MY_CHILD', label: t('parent.myChildren'), icon: User },
+          { key:'MESSAGES', label: t('nav.messages'), icon: MessageSquare },
+          { key:'PROFILE', label: t('nav.profile'), icon: Settings },
+        ].map(item => {
+          const isActive = activeTab === item.key
+          return (
+            <button key={item.key} onClick={() => setActiveTab(item.key as any)} className={`parent-mobile-nav-item ${isActive ? 'active' : ''}`}>
+              <item.icon size={20}/>
+              <span>{item.label}</span>
+            </button>
+          )
+        })}
+      </nav>
+
     </div>
   )
 }
