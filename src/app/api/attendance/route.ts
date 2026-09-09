@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from 'next/server'
 import prisma from '@/lib/db/prisma'
 import { getUserFromSession } from '@/lib/auth/auth'
+import { notify } from '@/lib/services/notificationService'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,7 +53,6 @@ export async function GET(request: NextRequest) {
         }
 
         const result = trips.map(t => {
-            // Latest attendance record per student (in case of duplicate taps)
             const latestByStudent = new Map<string, typeof t.attendances[number]>()
             for (const a of t.attendances) latestByStudent.set(a.studentId, a)
 
@@ -89,31 +89,71 @@ export async function POST(request: NextRequest) {
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
         const data = await request.json()
-        if (!data.tripId || !data.studentId || !data.action) {
-            return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
-        }
 
-        // ── PARENT CONFIRMATION FLOW ──────────────────────────────────────────
-        // Parents confirm their side of pickup/dropoff — updates parentConfirmed flags
+        // ── PARENT FLOW ───────────────────────────────────────────────────────
         if (user.role === 'PARENT') {
-            if (data.action !== 'PARENT_PICKUP_CONFIRMED' && data.action !== 'PARENT_DROPOFF_CONFIRMED') {
-                return NextResponse.json({ error: 'Parents can only confirm pickup or dropoff' }, { status: 403 })
+            if (!data.studentId || !data.action) {
+                return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
             }
-            // Verify this student belongs to the requesting parent
-            const student = await prisma.student.findUnique({
+
+            // PARENT_BOARDING / PARENT_ABSENT_TODAY — no tripId needed
+            if (data.action === 'PARENT_BOARDING' || data.action === 'PARENT_ABSENT_TODAY') {
+                const student = await prisma.student.findUnique({
+                    where: { id: data.studentId },
+                    select: { id: true, name: true, parentId: true, routeId: true }
+                })
+                if (!student || student.parentId !== user.id) {
+                    return NextResponse.json({ error: 'Forbidden: student not linked to your account' }, { status: 403 })
+                }
+                const today = new Date()
+                today.setHours(0, 0, 0, 0)
+                const statusValue = data.action === 'PARENT_BOARDING' ? 'BOARDING' : 'ABSENT_TODAY'
+                await prisma.studentDailyStatus.upsert({
+                    where: { studentId_date: { studentId: data.studentId, date: today } },
+                    create: { studentId: data.studentId, parentId: user.id, date: today, status: statusValue },
+                    update: { status: statusValue },
+                })
+                if (student.routeId) {
+                    const buses = await prisma.bus.findMany({
+                        where: { routeId: student.routeId, driverId: { not: null } },
+                        select: { driverId: true }
+                    })
+                    for (const bus of buses) {
+                        if (bus.driverId) {
+                            const msg = data.action === 'PARENT_BOARDING'
+                                ? `🟢 Parent confirmed: ${student.name} is ready for pickup today.`
+                                : `⏸️ Parent reported: ${student.name} is ABSENT today. Skip at stop.`
+                            await notify({
+                                userId: bus.driverId,
+                                title: data.action === 'PARENT_BOARDING' ? 'Student Boarding' : 'Student Absent Today',
+                                body: msg,
+                                type: data.action === 'PARENT_BOARDING' ? 'PARENT_BOARDING' : 'STUDENT_ABSENT'
+                            })
+                        }
+                    }
+                }
+                return NextResponse.json({ success: true, status: statusValue })
+            }
+
+            // PARENT_PICKUP_CONFIRMED / PARENT_DROPOFF_CONFIRMED — tripId required
+            if (!data.tripId) {
+                return NextResponse.json({ error: 'tripId required for confirmation actions' }, { status: 400 })
+            }
+            if (data.action !== 'PARENT_PICKUP_CONFIRMED' && data.action !== 'PARENT_DROPOFF_CONFIRMED') {
+                return NextResponse.json({ error: 'Invalid parent action' }, { status: 403 })
+            }
+            const confirmStudent = await prisma.student.findUnique({
                 where: { id: data.studentId },
                 select: { id: true, name: true, parentId: true }
             })
-            if (!student || student.parentId !== user.id) {
+            if (!confirmStudent || confirmStudent.parentId !== user.id) {
                 return NextResponse.json({ error: 'Forbidden: student not linked to your account' }, { status: 403 })
             }
-            // Find the latest attendance record for this student+trip
             const latestAttendance = await prisma.attendance.findFirst({
                 where: { tripId: data.tripId, studentId: data.studentId },
                 orderBy: { timestamp: 'desc' }
             })
             if (!latestAttendance) {
-                // No driver record yet — create a parent-initiated stub
                 const newRecord = await prisma.attendance.create({
                     data: {
                         tripId: data.tripId,
@@ -124,30 +164,29 @@ export async function POST(request: NextRequest) {
                         parentConfirmedDropoff: data.action === 'PARENT_DROPOFF_CONFIRMED',
                     }
                 })
-                // Notify the driver that parent is ready
                 const trip = await prisma.trip.findUnique({ where: { id: data.tripId }, select: { driverId: true } })
                 if (trip) {
                     const verb = data.action === 'PARENT_PICKUP_CONFIRMED' ? 'is ready for pickup' : 'is ready for drop-off'
-                    await prisma.notification.create({ data: { userId: trip.driverId, title: '✅ Parent Confirmed', body: `Parent of ${student.name} confirmed student ${verb}.`, type: 'INFO' } }).catch(() => {})
+                    await prisma.notification.create({ data: { userId: trip.driverId, title: '✅ Parent Confirmed', body: `Parent of ${confirmStudent.name} confirmed student ${verb}.`, type: 'INFO' } }).catch(() => {})
                 }
                 return NextResponse.json({ attendance: newRecord })
             }
-            // Update the existing record's confirmation flag
             const updateData = data.action === 'PARENT_PICKUP_CONFIRMED'
                 ? { parentConfirmedPickup: true }
                 : { parentConfirmedDropoff: true }
             const updated = await prisma.attendance.update({ where: { id: latestAttendance.id }, data: updateData })
-            // Notify the driver
-            const trip = await prisma.trip.findUnique({ where: { id: data.tripId }, select: { driverId: true } })
-            if (trip) {
+            const confirmTrip = await prisma.trip.findUnique({ where: { id: data.tripId }, select: { driverId: true } })
+            if (confirmTrip) {
                 const verb = data.action === 'PARENT_PICKUP_CONFIRMED' ? 'confirmed pickup' : 'confirmed drop-off'
-                await prisma.notification.create({ data: { userId: trip.driverId, title: '✅ Parent Confirmed', body: `Parent of ${student.name} ${verb}.`, type: 'INFO' } }).catch(() => {})
+                await prisma.notification.create({ data: { userId: confirmTrip.driverId, title: '✅ Parent Confirmed', body: `Parent of ${confirmStudent.name} ${verb}.`, type: 'INFO' } }).catch(() => {})
             }
             return NextResponse.json({ attendance: updated })
         }
 
         // ── DRIVER / ADMIN FLOW ───────────────────────────────────────────────
-        // Drivers log attendance during a trip; admins can correct/backfill records
+        if (!data.tripId || !data.studentId || !data.action) {
+            return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
+        }
         if (user.role !== 'DRIVER' && !ADMIN_ROLES.includes(user.role)) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
         }
@@ -158,69 +197,47 @@ export async function POST(request: NextRequest) {
             data: {
                 tripId: data.tripId,
                 studentId: data.studentId,
-                stopId: data.stopId, // Optional
+                stopId: data.stopId || null,
                 action: data.action,
                 latitude: dbUser?.lastLatitude || null,
                 longitude: dbUser?.lastLongitude || null
             }
         })
 
-        // Auto-create a notification for the parent with contextual messaging
-        const student = await prisma.student.findUnique({ where: { id: data.studentId } })
-        if (student?.parentId) {
+        // Auto-notify parent
+        const driverStudent = await prisma.student.findUnique({ where: { id: data.studentId } })
+        if (driverStudent?.parentId) {
             let notifTitle = 'Student Update'
-            let notifBody = `${student.name} status updated.`
+            let notifBody = `${driverStudent.name} status updated.`
             if (data.action === 'PICKED_UP') {
                 notifTitle = '🚌 Student Boarded'
-                notifBody = `${student.name} was picked up by the driver. Bus is now en route. Please confirm below.`
+                notifBody = `${driverStudent.name} was picked up by the driver. Bus is now en route. Please confirm below.`
             } else if (data.action === 'DROPPED_OFF') {
                 notifTitle = '🏠 Student Dropped Off'
-                notifBody = `${student.name} has been safely dropped off at the stop. Please confirm receipt.`
+                notifBody = `${driverStudent.name} has been safely dropped off at the stop. Please confirm receipt.`
             } else {
-                notifBody = `${student.name} was marked absent.`
+                notifBody = `${driverStudent.name} was marked absent.`
             }
             await prisma.notification.create({
-                data: { userId: student.parentId, title: notifTitle, body: notifBody, type: 'INFO' }
+                data: { userId: driverStudent.parentId, title: notifTitle, body: notifBody, type: 'INFO' }
             })
         }
 
-        // ── Bus Capacity / Overcrowding Alert ────────────────────────────
+        // Bus Capacity Alert
         if (data.action === 'PICKED_UP') {
-            const trip = await prisma.trip.findUnique({ where: { id: data.tripId }, select: { busId: true } })
-            if (trip?.busId) {
-                const bus = await prisma.bus.findUnique({ where: { id: trip.busId }, select: { capacity: true, plateNumber: true } })
+            const capTrip = await prisma.trip.findUnique({ where: { id: data.tripId }, select: { busId: true } })
+            if (capTrip?.busId) {
+                const bus = await prisma.bus.findUnique({ where: { id: capTrip.busId }, select: { capacity: true, plateNumber: true } })
                 if (bus) {
-                    const onBoard = await prisma.attendance.count({
-                        where: { tripId: data.tripId, action: 'PICKED_UP' }
-                    })
-                    const droppedOff = await prisma.attendance.count({
-                        where: { tripId: data.tripId, action: 'DROPPED_OFF' }
-                    })
+                    const onBoard = await prisma.attendance.count({ where: { tripId: data.tripId, action: 'PICKED_UP' } })
+                    const droppedOff = await prisma.attendance.count({ where: { tripId: data.tripId, action: 'DROPPED_OFF' } })
                     const currentOnBoard = onBoard - droppedOff
                     const ratio = currentOnBoard / bus.capacity
-
+                    const admins = await prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true } })
                     if (ratio >= 1) {
-                        // OVER CAPACITY
-                        const admins = await prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true } })
-                        await prisma.notification.createMany({
-                            data: admins.map(a => ({
-                                userId: a.id,
-                                title: '🚨 Overcrowding Alert',
-                                body: `Bus ${bus.plateNumber} has ${currentOnBoard}/${bus.capacity} passengers — OVER CAPACITY!`,
-                                type: 'EMERGENCY',
-                            }))
-                        }).catch(() => {})
+                        await prisma.notification.createMany({ data: admins.map(a => ({ userId: a.id, title: '🚨 Overcrowding Alert', body: `Bus ${bus.plateNumber} has ${currentOnBoard}/${bus.capacity} passengers — OVER CAPACITY!`, type: 'EMERGENCY' })) }).catch(() => {})
                     } else if (ratio >= 0.9) {
-                        // 90% warning
-                        const admins = await prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true } })
-                        await prisma.notification.createMany({
-                            data: admins.map(a => ({
-                                userId: a.id,
-                                title: '⚠️ Bus Nearly Full',
-                                body: `Bus ${bus.plateNumber} is at ${currentOnBoard}/${bus.capacity} capacity (${Math.round(ratio * 100)}%).`,
-                                type: 'WARNING',
-                            }))
-                        }).catch(() => {})
+                        await prisma.notification.createMany({ data: admins.map(a => ({ userId: a.id, title: '⚠️ Bus Nearly Full', body: `Bus ${bus.plateNumber} is at ${currentOnBoard}/${bus.capacity} capacity (${Math.round(ratio * 100)}%).`, type: 'WARNING' })) }).catch(() => {})
                     }
                 }
             }

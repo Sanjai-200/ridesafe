@@ -33,6 +33,29 @@ export async function POST(request: NextRequest) {
         }
 
         const data = await request.json()
+
+        // Support bulk creation: { stops: [...] }
+        if (Array.isArray(data.stops)) {
+            if (!data.routeId) {
+                return NextResponse.json({ error: 'routeId is required for bulk creation' }, { status: 400 })
+            }
+            await prisma.stop.createMany({
+                data: data.stops.map((s: { name: string; latitude: number; longitude: number }, idx: number) => ({
+                    routeId: data.routeId,
+                    name: String(s.name).trim(),
+                    latitude: Number(s.latitude) || 0,
+                    longitude: Number(s.longitude) || 0,
+                    order: idx + 1,
+                }))
+            })
+            const stops = await prisma.stop.findMany({
+                where: { routeId: data.routeId },
+                orderBy: { order: 'asc' }
+            })
+            return NextResponse.json({ stops })
+        }
+
+        // Single stop creation
         if (!data.routeId || !data.name || data.latitude === undefined || data.longitude === undefined || data.order === undefined) {
             return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
         }

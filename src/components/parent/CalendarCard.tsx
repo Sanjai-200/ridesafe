@@ -10,6 +10,7 @@ interface AcademicEvent {
   endDate: string | null
   type: string
   color: string | null
+  noBusService?: boolean
 }
 
 export default function CalendarCard() {
@@ -55,17 +56,17 @@ export default function CalendarCard() {
               key={event.id}
               initial={{ opacity:0, x:-10 }}
               animate={{ opacity:1, x:0 }}
-              style={{ display:'flex', alignItems:'center', gap:'1rem', padding:'0.75rem', borderRadius:12, background:'var(--surface-2)', border:'1px solid var(--surface-border)' }}
+              style={{ display:'flex', alignItems:'center', gap:'1rem', padding:'0.75rem', borderRadius:12, background:'var(--surface-2)', border: event.noBusService ? '1px solid rgba(239,68,68,0.4)' : '1px solid var(--surface-border)' }}
             >
               <div style={{ 
                 width:40, height:40, borderRadius:10, 
-                background: `${event.color}15` || 'var(--primary-glow)', 
+                background: event.noBusService ? 'rgba(239,68,68,0.12)' : (`${event.color}15` || 'var(--primary-glow)'),
                 display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' 
               }}>
-                <span style={{ fontSize:'0.6rem', fontWeight:800, color: event.color || 'var(--primary)', textTransform:'uppercase' }}>
+                <span style={{ fontSize:'0.6rem', fontWeight:800, color: event.noBusService ? '#ef4444' : (event.color || 'var(--primary)'), textTransform:'uppercase' }}>
                   {new Date(event.startDate).toLocaleDateString(undefined, { month: 'short' })}
                 </span>
-                <span style={{ fontSize:'0.9rem', fontWeight:800, color: event.color || 'var(--primary)', marginTop:-2 }}>
+                <span style={{ fontSize:'0.9rem', fontWeight:800, color: event.noBusService ? '#ef4444' : (event.color || 'var(--primary)'), marginTop:-2 }}>
                   {new Date(event.startDate).getDate()}
                 </span>
               </div>
@@ -73,6 +74,7 @@ export default function CalendarCard() {
                 <div style={{ fontSize:'0.85rem', fontWeight:600, color:'var(--text-main)' }}>{event.title}</div>
                 <div style={{ fontSize:'0.7rem', color:'var(--text-muted)' }}>
                   {event.type.replace('_', ' ')}
+                  {event.noBusService && <span style={{ marginLeft:6, color:'#ef4444', fontWeight:700 }}>⛔ No Bus</span>}
                 </div>
               </div>
             </motion.div>

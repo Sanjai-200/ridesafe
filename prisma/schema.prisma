@@ -64,6 +64,7 @@ model User {
   lostFoundReports LostFoundItem[]   @relation("LostFoundReports")
   driverShifts     DriverShift[]     @relation("DriverShifts")
   auditLogs        AuditLog[]        @relation("AuditLogs")
+  parentDailyStatus StudentDailyStatus[] @relation("ParentDailyStatus")
 }
 
 model Student {
@@ -93,6 +94,7 @@ model Student {
   dropoffStopId String?
   dropoffStop   Stop?        @relation("DropoffStop", fields: [dropoffStopId], references: [id])
   attendances   Attendance[]
+  dailyStatuses StudentDailyStatus[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -167,6 +169,13 @@ model Route {
   afternoonTime  String?
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
+  // Geo endpoints for route path visualization
+  startPointName  String?
+  startLatitude   Float?
+  startLongitude  Float?
+  endPointName    String?
+  endLatitude     Float?
+  endLongitude    Float?
 
   buses    Bus[]     @relation("RouteBuses")
   students Student[]
@@ -198,6 +207,8 @@ model Trip {
   busId    String?
   status   String   @default("TRIP_CREATED")
   date     DateTime @default(now())
+  // MORNING | AFTERNOON — driver manually starts each leg
+  session      String   @default("MORNING")
   // Delay reporting: driver/admin can log a delay with reason
   delayMinutes Int?    @default(0)
   delayReason  String?
@@ -266,6 +277,8 @@ model Payment {
   status         String    @default("PENDING")
   dueDate        DateTime?
   paidAt         DateTime?
+  invoiceUrl     String?   // URL to the invoice/bill document
+  description    String?   // e.g., "September 2026 Transport Fee"
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -354,10 +367,28 @@ model AcademicEvent {
   type           String        @default("EVENT") // HOLIDAY, EXAM, EVENT, TERM_START, TERM_END, ASSEMBLY
   isPublic       Boolean       @default(true)
   color          String?       @default("#1E3A8A")
+  // When true: trip creation is blocked on this date; parents & drivers notified
+  noBusService   Boolean       @default(false)
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+}
+
+// Parent proactive daily status declaration (before the bus arrives)
+model StudentDailyStatus {
+  id        String   @id @default(cuid())
+  studentId String
+  parentId  String
+  date      DateTime
+  // BOARDING | ABSENT_TODAY
+  status    String
+  createdAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  parent  User    @relation("ParentDailyStatus", fields: [parentId], references: [id])
+
+  @@unique([studentId, date])
 }
 
 model AuditLog {

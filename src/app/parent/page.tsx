@@ -6,6 +6,8 @@ import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
 import '../parent.css'
+import PaymentSection from '@/components/parent/PaymentSection'
+import RecipientPicker from '@/components/parent/RecipientPicker'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface StudentData {
@@ -41,7 +43,7 @@ import {
   Target, Flame, ShieldCheck, Sunrise, AlertTriangle, CheckCircle, AlertCircle,
   Trophy, Medal, Award, Phone, Bus, Clock, Clipboard, Home, XCircle, User,
   Settings, Bell, HelpCircle, LogOut, Globe, Navigation, MessageSquare, Shield,
-  ChevronRight, Sparkles, MapPin, Check, Send
+  ChevronRight, Sparkles, MapPin, Check, Send, Receipt
 } from 'lucide-react'
 
 // ── Gamification helpers ──────────────────────────────────────────────────────
@@ -65,7 +67,7 @@ export default function ParentDashboard() {
   const [schoolName, setSchoolName] = useState('RideSafe School')
   const [, setLastNotifId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'HOME' | 'MY_CHILD' | 'MESSAGES' | 'PROFILE'>('HOME')
+  const [activeTab, setActiveTab] = useState<'HOME' | 'MY_CHILD' | 'MESSAGES' | 'PAYMENT' | 'PROFILE'>('HOME')
   const [showMapModal, setShowMapModal] = useState(false)
   const [busNearby, setBusNearby] = useState(false)
   const [busNearbyStop, setBusNearbyStop] = useState<string>('')
@@ -80,8 +82,12 @@ export default function ParentDashboard() {
   // Messages state
   const [messages, setMessages] = useState<MessageData[]>([])
   const [msgContent, setMsgContent] = useState('')
+  const [msgRecipientId, setMsgRecipientId] = useState('')
   const [sending, setSending] = useState(false)
   const [msgToast, setMsgToast] = useState('')
+  // Parent daily status state
+  const [dailyStatus, setDailyStatus] = useState<Record<string, string>>({}) // studentId -> status
+  const [reportingStatus, setReportingStatus] = useState<string | null>(null)
 
   // Profile menu state
   const [me, setMe] = useState<{ name: string; email: string; phone?: string } | null>(null)
@@ -274,23 +280,33 @@ export default function ParentDashboard() {
 
   const sendMessage = async () => {
     if (!msgContent.trim()) return
+    if (!msgRecipientId) { setMsgToast('Please select a recipient'); return }
     setSending(true)
     try {
-      const contactRes = await fetch('/api/messages/school-contact').catch(() => null)
-      let adminId: string | null = null
-      if (contactRes && contactRes.ok) {
-        const cd = await contactRes.json()
-        adminId = cd.admin?.id || null
-      }
-      if (!adminId) { setMsgToast('No school dispatcher available'); setSending(false); return }
       const res = await fetch('/api/messages', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipientId: adminId, content: msgContent.trim() })
+        body: JSON.stringify({ recipientId: msgRecipientId, content: msgContent.trim() })
       })
-      if (res.ok) { setMsgContent(''); setMsgToast('Message sent to School Dispatch!') }
+      if (res.ok) { setMsgContent(''); setMsgToast('Message sent!') }
       else setMsgToast('Failed to send message')
     } catch { setMsgToast('Network error') } finally {
       setSending(false); setTimeout(() => setMsgToast(''), 3000)
+    }
+  }
+
+  const reportDailyStatus = async (studentId: string, action: 'PARENT_BOARDING' | 'PARENT_ABSENT_TODAY') => {
+    setReportingStatus(studentId + '_' + action)
+    try {
+      const res = await fetch('/api/attendance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId, action })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setDailyStatus(prev => ({ ...prev, [studentId]: data.status }))
+      }
+    } catch { /* silent */ } finally {
+      setReportingStatus(null)
     }
   }
 
@@ -344,6 +360,9 @@ export default function ParentDashboard() {
               {messages.filter(m => !m.read).length > 0 && (
                 <span style={{ width:6, height:6, borderRadius:'50%', background:'#FF453A', display:'inline-block' }}/>
               )}
+            </button>
+            <button className={`parent-pill-btn ${activeTab === 'PAYMENT' ? 'active' : ''}`} onClick={() => setActiveTab('PAYMENT')}>
+              <Receipt size={15}/> Payments
             </button>
             <button className={`parent-pill-btn ${activeTab === 'PROFILE' ? 'active' : ''}`} onClick={() => setActiveTab('PROFILE')}>
               <Settings size={15}/> {t('nav.profile')}
@@ -819,7 +838,15 @@ export default function ParentDashboard() {
             {/* Compose Message Box */}
             <div className="parent-card">
               <div className="parent-card-header">
-                <div className="parent-card-title"><MessageSquare size={18} color="#FFD60A"/> Send Message to School Dispatch</div>
+                <div className="parent-card-title"><MessageSquare size={18} color="#FFD60A"/> Send Message</div>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:12, color:'var(--hc-text-3, #6E6E7A)', marginBottom:6, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.04em' }}>To</div>
+                <RecipientPicker
+                  value={msgRecipientId}
+                  onChange={(id) => setMsgRecipientId(id)}
+                  placeholder="Select Admin, School Admin, or Driver…"
+                />
               </div>
               <div style={{ display:'flex', gap:8, marginBottom:12, flexWrap:'wrap' }}>
                 {['Child is sick today', 'Running 5 minutes late', 'Parent pickup today', 'Lost bottle on bus'].map(preset => (
@@ -832,12 +859,12 @@ export default function ParentDashboard() {
                 rows={4}
                 value={msgContent}
                 onChange={e => setMsgContent(e.target.value)}
-                placeholder="Type your message to the transport coordinator..."
+                placeholder="Type your message…"
                 style={{ width:'100%', background:'var(--hc-surface-2, #1C1C21)', border:'1px solid var(--hc-line, #26262C)', borderRadius:12, padding:'14px', color:'#FFFFFF', fontSize:14, outline:'none', resize:'none', fontFamily:'inherit' }}
               />
               <div style={{ display:'flex', justifyContent:'flex-end', marginTop:12 }}>
-                <button onClick={sendMessage} disabled={sending} className="parent-btn-primary">
-                  <Send size={15}/> {sending ? 'Sending…' : 'Send to Dispatch'}
+                <button onClick={sendMessage} disabled={sending || !msgRecipientId} className="parent-btn-primary">
+                  <Send size={15}/> {sending ? 'Sending…' : 'Send Message'}
                 </button>
               </div>
             </div>
@@ -862,6 +889,20 @@ export default function ParentDashboard() {
                   ))}
                 </div>
               )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            TAB 3.5: PAYMENT
+           ══════════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'PAYMENT' && (
+          <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.25 }} style={{ maxWidth:840, margin:'0 auto', display:'flex', flexDirection:'column', gap:20 }}>
+            <div className="parent-card">
+              <div className="parent-card-header">
+                <div className="parent-card-title"><Receipt size={18} color="#FFD60A"/> My Payments</div>
+              </div>
+              <PaymentSection />
             </div>
           </motion.div>
         )}

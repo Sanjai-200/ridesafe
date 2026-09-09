@@ -11,10 +11,13 @@ interface Student {
   parentContact1: string; parentContact2?: string;
   status: string; isSelfPickup: boolean; selfPickupSession?: string;
   busId?: string; bus?: { plateNumber: string }; routeId?: string;
-  route?: { id: string; name: string }; parent?: { name: string }
+  route?: { id: string; name: string }; parent?: { id: string; name: string };
+  pickupStop?: { id: string; name: string }; dropoffStop?: { id: string; name: string };
 }
 
 interface Route { id: string; name: string }
+interface Stop { id: string; name: string; order: number }
+interface ParentUser { id: string; name: string; email: string }
 
 const SELF_PICKUP_OPTIONS = [
   { value: '',              label: 'Bus Transport (no self-pickup)' },
@@ -26,7 +29,8 @@ const SELF_PICKUP_OPTIONS = [
 const defaultForm = {
   name: '', grade: '', level: '',
   parentContact1: '', parentContact2: '',
-  selfPickupSession: '', routeId: '', parentId: ''
+  selfPickupSession: '', routeId: '', parentId: '',
+  pickupStopId: '', dropoffStopId: '',
 }
 
 function sanitizePhone(v: string) {
@@ -47,6 +51,8 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
   const { t } = useTranslation()
   const [students, setStudents] = useState<Student[]>([])
   const [routes, setRoutes] = useState<Route[]>([])
+  const [parents, setParents] = useState<ParentUser[]>([])
+  const [routeStops, setRouteStops] = useState<Stop[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState(defaultForm)
@@ -61,9 +67,11 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
     Promise.all([
       fetch('/api/students').then(r => r.json()),
       fetch('/api/admin/routes').then(r => r.json()),
-    ]).then(([sData, rData]) => {
+      fetch('/api/admin/users').then(r => r.json()),
+    ]).then(([sData, rData, uData]) => {
       setStudents(sData.students || [])
       setRoutes(rData.routes || [])
+      setParents((uData.users || []).filter((u: ParentUser & { role: string }) => u.role === 'PARENT'))
       setLoading(false)
     }).catch(console.error)
   }
@@ -76,15 +84,24 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
     setTimeout(() => setToast(''), 3000)
   }
 
-  const openAddModal = () => { setEditingStudent(null); setForm(defaultForm); setFormErrors({}); setShowModal(true) }
+  const loadStopsForRoute = async (routeId: string) => {
+    if (!routeId) { setRouteStops([]); return }
+    const res = await fetch(`/api/stops?routeId=${routeId}`)
+    const data = await res.json()
+    setRouteStops(data.stops || [])
+  }
+
+  const openAddModal = () => { setEditingStudent(null); setForm(defaultForm); setFormErrors({}); setRouteStops([]); setShowModal(true) }
 
   const openEditModal = (s: Student) => {
     setEditingStudent(s)
     setForm({
       name: s.name, grade: s.grade, level: s.level || 'Primary',
       parentContact1: s.parentContact1, parentContact2: s.parentContact2 || '',
-      selfPickupSession: s.selfPickupSession || '', routeId: s.routeId || s.route?.id || '', parentId: '',
+      selfPickupSession: s.selfPickupSession || '', routeId: s.routeId || s.route?.id || '',
+      parentId: s.parent?.id || '', pickupStopId: s.pickupStop?.id || '', dropoffStopId: s.dropoffStop?.id || '',
     })
+    if (s.routeId || s.route?.id) loadStopsForRoute(s.routeId || s.route?.id || '')
     setFormErrors({})
     setShowModal(true)
   }
@@ -104,18 +121,17 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
         isSelfPickup: form.selfPickupSession !== '',
         selfPickupSession: form.selfPickupSession || null,
         routeId: form.routeId || null,
+        parentId: form.parentId || null,
+        pickupStopId: form.pickupStopId || null,
+        dropoffStopId: form.dropoffStopId || null,
       }
-      const res = editingStudent
-        ? await fetch(`/api/students/${editingStudent.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          })
-        : await fetch('/api/students', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          })
+      const url = editingStudent ? `/api/students/${editingStudent.id}` : '/api/students'
+      const method = editingStudent ? 'PATCH' : 'POST'
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
       if (res.ok) {
         showToast(editingStudent ? 'Student updated!' : 'Student added successfully!', 'success')
         setShowModal(false); setForm(defaultForm); setEditingStudent(null); loadStudents()
@@ -247,6 +263,7 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
               style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                 padding:'1rem 1.25rem', background:'rgba(255,255,255,0.02)',
                 borderRadius:12, border:'1px solid var(--surface-border)', transition:'all 0.2s' }}>
+              {/* Student Info Row */}
               <div style={{ display:'flex', alignItems:'center', gap:'1rem' }}>
                 <div style={{ width:22, fontSize:'0.78rem', color:'var(--text-muted)', textAlign:'right', flexShrink:0, fontVariantNumeric:'tabular-nums' }}>
                   {i + 1}
@@ -264,6 +281,14 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
                     {s.parent && <span> · Parent: {s.parent.name}</span>}
                     {s.parentContact1 && <span> · 📞 {s.parentContact1}</span>}
                   </div>
+                  {/* Assigned stops info */}
+                  {(s.pickupStop || s.dropoffStop) && (
+                    <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', marginTop:2 }}>
+                      {s.pickupStop && <span>🟢 Pickup: {s.pickupStop.name}</span>}
+                      {s.pickupStop && s.dropoffStop && <span> · </span>}
+                      {s.dropoffStop && <span>🔴 Drop: {s.dropoffStop.name}</span>}
+                    </div>
+                  )}
                 </div>
               </div>
               <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end' }}>
@@ -347,12 +372,42 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
                   {formErrors.parentContact2 && <div style={{ color:'var(--danger)', fontSize:'0.75rem', marginTop:3 }}>{formErrors.parentContact2}</div>}
                 </div>
                 <div className="input-group" style={{ gridColumn:'1/-1' }}>
+                  <label className="input-label">Assign Parent Account</label>
+                  <select className="select-field" value={form.parentId} onChange={e => setForm(p => ({...p, parentId:e.target.value}))}>
+                    <option value="">-- Select Parent Account --</option>
+                    {parents.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.email})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group" style={{ gridColumn:'1/-1' }}>
                   <label className="input-label">Assign Route</label>
-                  <select className="select-field" value={form.routeId} onChange={e => setForm(p => ({...p, routeId:e.target.value}))}>
+                  <select className="select-field" value={form.routeId} onChange={e => {
+                    setForm(p => ({...p, routeId: e.target.value, pickupStopId: '', dropoffStopId: ''}))
+                    loadStopsForRoute(e.target.value)
+                  }}>
                     <option value="">No route (self-pickup)</option>
                     {routes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </div>
+                {routeStops.length > 0 && (
+                  <>
+                    <div className="input-group">
+                      <label className="input-label">🟢 Pickup Stop</label>
+                      <select className="select-field" value={form.pickupStopId} onChange={e => setForm(p => ({...p, pickupStopId: e.target.value}))}>
+                        <option value="">-- Select Stop --</option>
+                        {routeStops.map(s => <option key={s.id} value={s.id}>{s.order}. {s.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">🔴 Dropoff Stop</label>
+                      <select className="select-field" value={form.dropoffStopId} onChange={e => setForm(p => ({...p, dropoffStopId: e.target.value}))}>
+                        <option value="">-- Select Stop --</option>
+                        {routeStops.map(s => <option key={s.id} value={s.id}>{s.order}. {s.name}</option>)}
+                      </select>
+                    </div>
+                  </>
+                )}
                 <div className="input-group" style={{ gridColumn:'1/-1' }}>
                   <label className="input-label">Pickup Method</label>
                   <select className="select-field" value={form.selfPickupSession}

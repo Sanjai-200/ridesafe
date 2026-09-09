@@ -89,6 +89,10 @@ export default function DriverDashboard() {
   const [delayMinutes, setDelayMinutes] = useState(15)
   const [delayReason, setDelayReason] = useState('Heavy Traffic')
   const [sendingDelay, setSendingDelay] = useState(false)
+  // Session (MORNING / AFTERNOON) — driver must manually pick
+  const [tripSession, setTripSession] = useState<'MORNING' | 'AFTERNOON'>('MORNING')
+  // Daily status board: parent-reported status per student
+  const [dailyStatusBoard, setDailyStatusBoard] = useState<Record<string, string>>({})
   const router = useRouter()
   const prevTripId = useRef<string | null>(null)
   const tripTimer = useTripTimer(tripStartedAt)
@@ -115,6 +119,13 @@ export default function DriverDashboard() {
         setTripStartedAt(new Date(json.activeTrip.date))
       } else if (!json.activeTrip) {
         setTripStartedAt(null)
+      }
+      // Load today's parent daily status board
+      if (json.assignedRoute?.id) {
+        fetch(`/api/driver/daily-status?routeId=${json.assignedRoute.id}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(d => { if (d?.statuses) setDailyStatusBoard(d.statuses) })
+          .catch(() => {})
       }
       // Detect trip start → play bus horn
       if (json.activeTrip && prevTripId.current !== json.activeTrip.id) {
@@ -200,9 +211,9 @@ export default function DriverDashboard() {
     try {
       const res = await fetch('/api/trips', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ routeId: data.assignedRoute.id, busId: data.busId })
+        body:JSON.stringify({ routeId: data.assignedRoute.id, busId: data.busId, session: tripSession })
       })
-      if (res.ok) { playHorn(); showToast('Trip started!', 'success'); fetchStatus() }
+      if (res.ok) { playHorn(); showToast(`${tripSession === 'MORNING' ? '🌅 Morning' : '🌆 Afternoon'} trip started!`, 'success'); fetchStatus() }
     } catch (e) { console.error(e) }
   }
 
@@ -354,10 +365,28 @@ export default function DriverDashboard() {
              </div>
           )}
 
+          {/* Session Picker */}
+          <div style={{ display:'flex', gap:10, marginBottom:'1.5rem', justifyContent:'center' }}>
+            {(['MORNING', 'AFTERNOON'] as const).map(s => (
+              <button key={s}
+                onClick={() => setTripSession(s)}
+                style={{
+                  padding:'0.6rem 1.5rem', borderRadius:50, fontWeight:700, fontSize:'0.9rem', cursor:'pointer',
+                  border: '2px solid',
+                  borderColor: tripSession === s ? 'var(--bus-yellow)' : 'var(--surface-border)',
+                  background: tripSession === s ? 'rgba(255,214,10,0.12)' : 'rgba(255,255,255,0.03)',
+                  color: tripSession === s ? 'var(--bus-yellow)' : 'var(--text-muted)',
+                  transition:'all 0.2s',
+                }}>
+                {s === 'MORNING' ? '🌅 Morning Pickup' : '🌆 Afternoon Drop-off'}
+              </button>
+            ))}
+          </div>
+
           <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.95 }}
             onClick={handleStartTrip} className="btn"
             style={{ width: '100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.15rem', padding:'1.15rem 0', borderRadius:'50px', background:'var(--bus-yellow)', color:'#111', fontWeight:800, boxShadow:'0 8px 30px -10px var(--bus-yellow-glow)' }}>
-            <Bus size={22} style={{marginRight:8}}/> {t('driver.startTrip')}
+            <Bus size={22} style={{marginRight:8}}/> Start {tripSession === 'MORNING' ? 'Morning' : 'Afternoon'} Trip
           </motion.button>
         </motion.div>
       )}

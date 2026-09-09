@@ -60,9 +60,28 @@ export async function POST(request: NextRequest) {
                 routeId: data.routeId,
                 driverId: driverId,
                 busId: data.busId,
-                status: 'TRIP_CREATED'
+                status: 'TRIP_CREATED',
+                session: data.session || null,
             }
         })
+
+        // Notify all parents on this route that trip has started
+        const students = await prisma.student.findMany({
+            where: { routeId: data.routeId, parentId: { not: null } },
+            select: { parentId: true, name: true }
+        })
+        const parentIds = [...new Set(students.map(s => s.parentId).filter(Boolean) as string[])]
+        if (parentIds.length > 0) {
+            const sessionLabel = data.session === 'AFTERNOON' ? 'Afternoon Drop-off' : 'Morning Pickup'
+            await prisma.notification.createMany({
+                data: parentIds.map(parentId => ({
+                    userId: parentId,
+                    title: `🚌 ${sessionLabel} Trip Started`,
+                    body: `The bus has started the ${sessionLabel} trip for your route. Driver is on the way.`,
+                    type: 'INFO',
+                }))
+            }).catch(() => {})
+        }
 
         return NextResponse.json({ trip })
     } catch (error) {

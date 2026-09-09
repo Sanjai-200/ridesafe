@@ -13,6 +13,7 @@ interface AcademicEvent {
   type: string
   isPublic: boolean
   color: string | null
+  noBusService?: boolean
 }
 
 export default function AcademicCalendarTab() {
@@ -28,7 +29,8 @@ export default function AcademicCalendarTab() {
     endDate: '',
     type: 'EVENT',
     isPublic: true,
-    color: '#1E3A8A'
+    color: '#1E3A8A',
+    noBusService: false,
   })
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
@@ -78,7 +80,7 @@ export default function AcademicCalendarTab() {
         showToast(editingId ? 'Event updated!' : 'Event added!', 'success')
         setShowModal(false)
         setEditingId(null)
-        setForm({ title: '', description: '', startDate: '', endDate: '', type: 'EVENT', isPublic: true, color: '#1E3A8A' })
+        setForm({ title: '', description: '', startDate: '', endDate: '', type: 'EVENT', isPublic: true, color: '#1E3A8A', noBusService: false })
         fetchEvents()
       } else {
         showToast('Failed to save event', 'error')
@@ -113,7 +115,8 @@ export default function AcademicCalendarTab() {
       endDate: event.endDate ? new Date(event.endDate).toISOString().split('T')[0] : '',
       type: event.type,
       isPublic: event.isPublic,
-      color: event.color || '#1E3A8A'
+      color: event.color || '#1E3A8A',
+      noBusService: event.noBusService || false,
     })
     setShowModal(true)
   }
@@ -160,7 +163,7 @@ export default function AcademicCalendarTab() {
             className="btn btn-primary" 
             onClick={() => {
               setEditingId(null)
-              setForm({ title: '', description: '', startDate: '', endDate: '', type: 'EVENT', isPublic: true, color: '#1E3A8A' })
+              setForm({ title: '', description: '', startDate: '', endDate: '', type: 'EVENT', isPublic: true, color: '#1E3A8A', noBusService: false })
               setShowModal(true)
             }}
           >
@@ -196,6 +199,11 @@ export default function AcademicCalendarTab() {
                       {event.endDate && ` — ${new Date(event.endDate).toLocaleDateString(undefined, { dateStyle: 'long' })}`}
                     </div>
                     {event.description && <div style={{ fontSize:'0.8rem', color:'var(--text-dim)', marginTop:4 }}>{event.description}</div>}
+                    {event.noBusService && (
+                      <div style={{ fontSize:'0.75rem', fontWeight:700, color:'#ef4444', marginTop:4 }}>
+                        ⛔ No Bus Service on this day
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display:'flex', gap:'0.5rem' }}>
@@ -264,6 +272,23 @@ export default function AcademicCalendarTab() {
                       style={{ width:20, height:20, cursor:'pointer' }}
                     />
                    <label htmlFor="isVisible" style={{ cursor:'pointer', fontSize:'0.9rem', fontWeight:500 }}>Visible to Parents & Students</label>
+                </div>
+
+                {/* No Bus Service Toggle */}
+                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'0.75rem', background: form.noBusService ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.02)', border: `1px solid ${form.noBusService ? 'rgba(239,68,68,0.4)' : 'var(--surface-border)'}`, borderRadius:10 }}>
+                   <input 
+                      type="checkbox" 
+                      id="noBusService" 
+                      checked={form.noBusService} 
+                      onChange={e => setForm(p => ({ ...p, noBusService: e.target.checked }))} 
+                      style={{ width:20, height:20, cursor:'pointer', accentColor:'#ef4444' }}
+                    />
+                   <div>
+                     <label htmlFor="noBusService" style={{ cursor:'pointer', fontSize:'0.9rem', fontWeight:600, color: form.noBusService ? '#ef4444' : 'var(--text-main)' }}>
+                       ⛔ No Bus Service
+                     </label>
+                     <div style={{ fontSize:'0.75rem', color:'var(--text-muted)', marginTop:2 }}>Parents & drivers will be automatically notified.</div>
+                   </div>
                 </div>
               </div>
 
