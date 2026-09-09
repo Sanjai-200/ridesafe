@@ -15,6 +15,7 @@ All future Git commits in this repository must follow strict, descriptive Conven
 - `docs`: Documentation updates only
 
 ## Guidelines
-- Never use vague messages like "update", "changes", "fix", or "New".
-- Always identify the affected component or scope in parentheses.
+- Always base the commit message directly on the user's specific question, prompt, and exact requested instructions.
+- Clearly describe what was requested and what changed, never use vague messages like "update", "changes", "fix", or "New".
+- Always identify the affected component or scope in parentheses: e.g. `feat(parent): ...`, `docs(workflow): ...`.
 - Keep the title imperative and under 72 characters.

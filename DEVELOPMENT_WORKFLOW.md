@@ -26,21 +26,23 @@ git checkout test
 git pull origin test
 ```
 
-### Commit Convention:
+### Commit Naming Convention:
 Follow the strict Conventional Commits standard defined in `.agents/rules/git-commits.md`:
 ```
-<type>(<scope>): <clear, concise description>
+<type>(<scope>): <clear, concise description reflecting user question and specific changes>
 ```
+- **Rule for all AI Agents**: Commit messages must **specifically reflect the user's question, prompt, and exact requested instructions**. Never use generic, lazy, or vague commit messages like `"update"`, `"fix bugs"`, or `"changes"`.
 - **Allowed Types**: `feat`, `fix`, `refactor`, `perf`, `chore`, `test`, `docs`
-- **Examples**:
-  - `feat(parent): add real-time ETA countdown badge`
-  - `fix(driver): resolve offline attendance sync race condition`
+- **Examples based on user requests**:
+  - `feat(parent): redesign parent dashboard to dark luxury theme per user request`
+  - `fix(driver): resolve GPS update latency on active trip check-in`
+  - `docs(workflow): clarify admin role scope and commit naming rules`
   - `chore(deps): update prisma client to latest patch`
 
 ### Pushing Code:
 ```powershell
 git add .
-git commit -m "feat(scope): your descriptive change"
+git commit -m "feat(scope): your descriptive change based on user request"
 git push origin test
 ```
 
