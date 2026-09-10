@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
           userId: r.id,
           title: `⛔ No Bus Service — ${dateStr}`,
           body: `"${String(title).trim()}" — There will be NO bus service on ${dateStr}. Please make alternative arrangements.`,
-          type: 'NO_BUS_SERVICE',
+          type: 'NO_SERVICE',
         }).catch(() => {})
       }
     }

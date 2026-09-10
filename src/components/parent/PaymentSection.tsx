@@ -97,7 +97,7 @@ export default function PaymentSection({ parentId }: PaymentSectionProps) {
                 <FileText size={18} style={{ color: cfg.color }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem', truncate: 'true' }}>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {inv.description || `Invoice #${inv.id.slice(-6).toUpperCase()}`}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>

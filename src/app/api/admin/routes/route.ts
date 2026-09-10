@@ -69,7 +69,7 @@ export async function POST(request: Request) {
                 endPointName: endPointName ? String(endPointName).trim() : null,
                 endLatitude: parsedEndLat != null && !isNaN(parsedEndLat) ? parsedEndLat : null,
                 endLongitude: parsedEndLng != null && !isNaN(parsedEndLng) ? parsedEndLng : null,
-                organizationId: auth.organizationId || null,
+                organizationId: (auth as any).organizationId || null,
             }
         })
 

@@ -103,7 +103,7 @@ export default function ParentDashboard() {
 
   // Profile menu state
   const [me, setMe] = useState<{ name: string; email: string; phone?: string } | null>(null)
-  const [profilePanel, setProfilePanel] = useState<'INFO' | 'HELP' | null>(null)
+  const [profilePanel, setProfilePanel] = useState<'INFO' | 'HELP' | 'LANG' | null>(null)
   const [profileNotice, setProfileNotice] = useState('')
   const showProfileNotice = (msg: string) => { setProfileNotice(msg); setTimeout(() => setProfileNotice(''), 3000) }
 
