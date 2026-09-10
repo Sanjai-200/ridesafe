@@ -62,8 +62,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         }
       }
     } else if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN') {
-      // Admin can update anything
-      updateData = data
+      // Admin / School Admin can update student fields safely
+      updateData = {
+        ...(data.name !== undefined && { name: String(data.name).trim() }),
+        ...(data.grade !== undefined && { grade: String(data.grade).trim() }),
+        ...(data.level !== undefined && { level: String(data.level).trim() }),
+        ...(data.parentContact1 !== undefined && { parentContact1: String(data.parentContact1).trim() }),
+        ...(data.parentContact2 !== undefined && { parentContact2: data.parentContact2 ? String(data.parentContact2).trim() : null }),
+        ...(data.isSelfPickup !== undefined && { isSelfPickup: Boolean(data.isSelfPickup) }),
+        ...(data.selfPickupSession !== undefined && { selfPickupSession: data.selfPickupSession || null }),
+        ...(data.routeId !== undefined && { routeId: data.routeId || null }),
+        ...(data.parentId !== undefined && { parentId: data.parentId || null }),
+        ...(data.pickupStopId !== undefined && { pickupStopId: data.pickupStopId || null }),
+        ...(data.dropoffStopId !== undefined && { dropoffStopId: data.dropoffStopId || null }),
+        ...(data.organizationId !== undefined && { organizationId: data.organizationId || null }),
+        ...(data.pickupTime !== undefined && { pickupTime: data.pickupTime || null }),
+        ...(data.photoUrl !== undefined && { photoUrl: data.photoUrl || null }),
+        ...(data.status !== undefined && { status: data.status || 'APPROVED' }),
+      }
     } else {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }

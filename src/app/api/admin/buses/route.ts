@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
     try {
         const auth = await getUserFromSession()
-        if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN')) {
+        if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN' && auth.role !== 'SCHOOL_ADMIN')) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
         }
 
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
     try {
         const auth = await getUserFromSession()
-        if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN')) {
+        if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN' && auth.role !== 'SCHOOL_ADMIN')) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
         }
 
@@ -39,9 +39,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Plate number and capacity are required' }, { status: 400 })
         }
 
+        const cleanPlate = String(plateNumber).trim().toUpperCase()
+
+        const existing = await prisma.bus.findUnique({
+            where: { plateNumber: cleanPlate }
+        })
+        if (existing) {
+            return NextResponse.json({ error: `A bus with plate number "${cleanPlate}" already exists.` }, { status: 409 })
+        }
+
         const bus = await prisma.bus.create({
             data: {
-                plateNumber,
+                plateNumber: cleanPlate,
                 capacity: parseInt(capacity),
                 status: status || 'ACTIVE',
                 driverId: driverId || null,
@@ -56,8 +65,11 @@ export async function POST(request: Request) {
         })
 
         return NextResponse.json({ bus })
-    } catch (error) {
+    } catch (error: any) {
         console.error('Bus create error:', error)
+        if (error?.code === 'P2002' || String(error?.message || '').includes('Unique constraint')) {
+            return NextResponse.json({ error: 'A bus with this plate number already exists.' }, { status: 409 })
+        }
         return NextResponse.json({ error: 'Failed to create bus' }, { status: 500 })
     }
 }

@@ -113,42 +113,68 @@ export async function POST(request: Request) {
         const effectiveStartName = startPointName ? String(startPointName).trim() : 'School / Depot'
         const effectiveEndName = endPointName ? String(endPointName).trim() : 'Destination Point'
 
-        // Create the route with bulletproof raw SQL fallback so missing columns can never cause a 500 error
-        let route: { id: string; name: string }
-        try {
-            const created = await prisma.route.create({
-                data: {
-                    name: candidateName,
-                    morningTime: morningTime || '7:30 AM',
-                    afternoonTime: afternoonTime || '3:00 PM',
-                    startPointName: effectiveStartName,
-                    startLatitude: effectiveStartLat,
-                    startLongitude: effectiveStartLng,
-                    endPointName: effectiveEndName,
-                    endLatitude: effectiveEndLat,
-                    endLongitude: effectiveEndLng,
-                    organizationId: (auth as any).organizationId || null,
-                },
-                select: { id: true, name: true }
-            })
-            route = created
-        } catch (createErr) {
-            console.warn('Prisma create failed, creating route via safe raw SQL insert:', createErr)
-            const newRouteId = `route_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
-            const mTime = morningTime || '7:30 AM'
-            const aTime = afternoonTime || '3:00 PM'
-            const orgId = (auth as any).organizationId || null
+        // Create the route with bulletproof collision retry and raw SQL fallback
+        let route: { id: string; name: string } | null = null
+        let attempts = 0
+        const maxAttempts = 6
 
-            await prisma.$executeRawUnsafe(
-                `INSERT INTO "Route" ("id", "name", "morningTime", "afternoonTime", "organizationId", "createdAt", "updatedAt") 
-                 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
-                newRouteId,
-                candidateName,
-                mTime,
-                aTime,
-                orgId
-            )
-            route = { id: newRouteId, name: candidateName }
+        while (!route && attempts < maxAttempts) {
+            attempts++
+            try {
+                const created = await prisma.route.create({
+                    data: {
+                        name: candidateName,
+                        morningTime: morningTime || '7:30 AM',
+                        afternoonTime: afternoonTime || '3:00 PM',
+                        startPointName: effectiveStartName,
+                        startLatitude: effectiveStartLat,
+                        startLongitude: effectiveStartLng,
+                        endPointName: effectiveEndName,
+                        endLatitude: effectiveEndLat,
+                        endLongitude: effectiveEndLng,
+                        organizationId: (auth as any).organizationId || null,
+                    },
+                    select: { id: true, name: true }
+                })
+                route = created
+            } catch (createErr: any) {
+                const isConflict = createErr?.code === 'P2002' || String(createErr?.message || '').includes('already exists') || String(createErr?.message || '').includes('23505')
+                if (isConflict && attempts < maxAttempts) {
+                    candidateName = `${String(name).trim()} (${suffix++})`
+                    continue
+                }
+
+                // If not standard Prisma create, try safe raw SQL insert
+                try {
+                    const newRouteId = `route_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
+                    const mTime = morningTime || '7:30 AM'
+                    const aTime = afternoonTime || '3:00 PM'
+                    const orgId = (auth as any).organizationId || null
+
+                    await prisma.$executeRawUnsafe(
+                        `INSERT INTO "Route" ("id", "name", "morningTime", "afternoonTime", "organizationId", "createdAt", "updatedAt") 
+                         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+                        newRouteId,
+                        candidateName,
+                        mTime,
+                        aTime,
+                        orgId
+                    )
+                    route = { id: newRouteId, name: candidateName }
+                } catch (rawErr: any) {
+                    const isRawConflict = String(rawErr?.message || '').includes('already exists') || String(rawErr?.message || '').includes('23505') || rawErr?.code === 'P2010'
+                    if (isRawConflict && attempts < maxAttempts) {
+                        candidateName = `${String(name).trim()} (${suffix++})`
+                        continue
+                    }
+                    console.error('Route create raw insert error:', rawErr)
+                    return NextResponse.json({ error: `Route "${candidateName}" already exists. Please choose a different name.` }, { status: 409 })
+                }
+            }
+        }
+
+        if (!route) {
+            return NextResponse.json({ error: 'A route with this name already exists. Please choose a different name.' }, { status: 409 })
         }
 
         // Auto Route Suggestion: If no stops were specified, auto-generate intermediate waypoint stops along the corridor

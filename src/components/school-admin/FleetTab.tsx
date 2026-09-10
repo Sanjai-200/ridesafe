@@ -38,6 +38,8 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
     const [busForm, setBusForm] = useState(defaultBusForm)
     const [routeForm, setRouteForm] = useState(defaultRouteForm)
+    const [submittingBus, setSubmittingBus] = useState(false)
+    const [submittingRoute, setSubmittingRoute] = useState(false)
 
     const loadData = () => {
         Promise.all([
@@ -111,6 +113,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
     const handleAddBus = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (submittingBus) return
         const cap = parseInt(busForm.capacity)
         if (!busForm.plateNumber.trim() || busForm.plateNumber.trim().length < 2) {
             alert('Please enter a valid plate number (min. 2 characters)'); return
@@ -118,6 +121,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
         if (isNaN(cap) || cap < 1 || cap > 200) {
             alert('Capacity must be a number between 1 and 200'); return
         }
+        setSubmittingBus(true)
         try {
             const payload = {
                 plateNumber: busForm.plateNumber.toUpperCase().trim(),
@@ -139,7 +143,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                 const err = await res.json()
                 alert(err.error || (editingBusId ? 'Failed to update bus' : 'Failed to add bus'))
             }
-        } catch (e) { console.error(e) }
+        } catch (e) { console.error(e) } finally { setSubmittingBus(false) }
     }
 
     const handleDeleteBus = async (b: any) => {
@@ -195,9 +199,11 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
     const handleAddRoute = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (submittingRoute) return
         if (!routeForm.name.trim() || routeForm.name.trim().length < 2) {
             alert('Route name must be at least 2 characters'); return
         }
+        setSubmittingRoute(true)
         try {
             const payload: Record<string, unknown> = {
                 name: routeForm.name.trim(),
@@ -229,7 +235,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                 const err = await res.json()
                 alert(err.error || (editingRouteId ? 'Failed to update route' : 'Failed to add route'))
             }
-        } catch (e) { console.error(e) }
+        } catch (e) { console.error(e) } finally { setSubmittingRoute(false) }
     }
 
     const handleDeleteRoute = async (r: any) => {
@@ -418,7 +424,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
                                 <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', justifyContent: 'flex-end' }}>
                                     <button type="button" className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => { setShowBusModal(false); setEditingBusId(null) }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">{editingBusId ? 'Save Changes' : 'Save Bus'}</button>
+                                    <button type="submit" className="btn btn-primary" disabled={submittingBus}>{submittingBus ? 'Saving...' : editingBusId ? 'Save Changes' : 'Save Bus'}</button>
                                 </div>
                             </form>
                         </motion.div>
@@ -471,7 +477,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
                                 <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', justifyContent: 'flex-end' }}>
                                     <button type="button" className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => { setShowRouteModal(false); setEditingRouteId(null) }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">{editingRouteId ? 'Save Changes' : 'Create Route'}</button>
+                                    <button type="submit" className="btn btn-primary" disabled={submittingRoute}>{submittingRoute ? 'Saving...' : editingRouteId ? 'Save Changes' : 'Create Route'}</button>
                                 </div>
                             </form>
                         </motion.div>

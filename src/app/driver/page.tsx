@@ -8,7 +8,7 @@ import {
   Bus, Navigation, Timer, GraduationCap, MapPin, AlertTriangle, 
   ShieldAlert, CheckCircle, RefreshCw, Sparkles, ClipboardCheck, Users, 
   Calendar, Bell, User, Phone, Shield, Clock, Search, Check, X,
-  Radio, AlertCircle, Wrench
+  Radio, AlertCircle, Wrench, Camera
 } from 'lucide-react'
 
 import { useAudio } from '@/hooks/useAudio'
@@ -345,14 +345,20 @@ export default function DriverDashboard() {
 
   const recordAttendance = async (studentId: string, action: string) => {
     if (!data?.activeTrip) return
-    const stop = data.activeTrip.route.stops[currentStopIndex]
+    const stops = data.activeTrip.route?.stops || []
+    const stop = stops[currentStopIndex] || stops[0]
+    if (!stop) return
     const payload = { tripId: data.activeTrip.id, studentId, stopId: stop.id, action }
 
     // Optimistic state update
     const newData = JSON.parse(JSON.stringify(data))
-    newData.activeTrip.route.stops[currentStopIndex].attendances.push({ studentId, action, temp: true })
-    setData(newData)
-    setXp(p => p + (action === 'ABSENT' ? 5 : 20))
+    if (newData?.activeTrip?.route?.stops?.[currentStopIndex]) {
+      if (!Array.isArray(newData.activeTrip.route.stops[currentStopIndex].attendances)) {
+        newData.activeTrip.route.stops[currentStopIndex].attendances = []
+      }
+      newData.activeTrip.route.stops[currentStopIndex].attendances.push({ studentId, action, temp: true })
+      setData(newData)
+    }
     showToast(action === 'ABSENT' ? 'Marked absent' : action === 'PICKED_UP' ? '✓ Student boarded' : '✓ Student dropped off')
 
     const sync = async () => {
@@ -430,8 +436,8 @@ export default function DriverDashboard() {
     : allRouteStudents
 
   // Count students on board
-  const onBoard = activeTrip ? activeTrip.route.stops.flatMap((s: Stop) =>
-    s.attendances.filter((a: AttendanceRecord) => a.action === 'PICKED_UP')
+  const onBoard = activeTrip?.route?.stops ? activeTrip.route.stops.flatMap((s: Stop) =>
+    (s?.attendances || []).filter((a: AttendanceRecord) => a?.action === 'PICKED_UP')
   ).length : 0
 
   return (
@@ -756,13 +762,34 @@ export default function DriverDashboard() {
 
             {/* Active Driving Trip Screen */}
             {activeTrip && (() => {
-              const stops = activeTrip.route.stops
-              const stop = stops[currentStopIndex]
+              const stops = activeTrip.route?.stops || []
+              if (stops.length === 0) {
+                return (
+                  <div style={{
+                    padding: '2.5rem 2rem', textAlign: 'center', background: '#141417',
+                    borderRadius: 16, border: '1px solid #26262C', color: '#A6A6B2'
+                  }}>
+                    <Bus size={36} color="#FFD60A" style={{ margin: '0 auto 12px auto' }} />
+                    <h3 style={{ color: '#FFF', margin: '0 0 8px 0' }}>Trip in Progress</h3>
+                    <p style={{ margin: 0, fontSize: 14 }}>Route telemetry active. No individual stops defined for this route itinerary.</p>
+                    <button
+                      onClick={handleCompleteTrip}
+                      style={{
+                        marginTop: 18, background: '#FFD60A', color: '#08080A', border: 'none',
+                        padding: '10px 24px', borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: 'pointer'
+                      }}
+                    >
+                      ✓ End Trip & Sign Off
+                    </button>
+                  </div>
+                )
+              }
+              const stop = stops[currentStopIndex] || stops[0]
               if (!stop) return null
-              const isLastStop = currentStopIndex === stops.length - 1
+              const isLastStop = currentStopIndex >= stops.length - 1
 
               const getStatus = (studentId: string) => {
-                const att = stop.attendances.find((a: AttendanceRecord) => a.studentId === studentId)
+                const att = (stop.attendances || []).find((a: AttendanceRecord) => a?.studentId === studentId)
                 return att ? att.action : null
               }
 
@@ -871,15 +898,15 @@ export default function DriverDashboard() {
                     </div>
 
                     {/* Students at this stop */}
-                    {stop.pickupStudents.length === 0 && stop.dropoffStudents.length === 0 ? (
+                    {(stop.pickupStudents || []).length === 0 && (stop.dropoffStudents || []).length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '32px 0', color: '#6E6E7A', fontSize: 14 }}>
                         No student pickups or drop-offs scheduled at this stop.
                       </div>
                     ) : (
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
                         {[
-                          ...stop.pickupStudents.map(s => ({ ...s, type: 'PICKUP' as const })),
-                          ...stop.dropoffStudents.map(s => ({ ...s, type: 'DROPOFF' as const }))
+                          ...(stop.pickupStudents || []).map(s => ({ ...s, type: 'PICKUP' as const })),
+                          ...(stop.dropoffStudents || []).map(s => ({ ...s, type: 'DROPOFF' as const }))
                         ].map(student => {
                           const status = getStatus(student.id)
                           // Parent reported daily status (Boarding vs Absent)
@@ -920,7 +947,7 @@ export default function DriverDashboard() {
                                   title="Verify face/photo"
                                   style={{ background: 'transparent', border: 'none', color: '#A6A6B2', cursor: 'pointer', padding: 6 }}
                                 >
-                                  <ScanFace size={20} />
+                                  <Camera size={20} />
                                 </button>
                               </div>
 
@@ -1390,8 +1417,7 @@ export default function DriverDashboard() {
               <button
                 onClick={() => {
                   setInspectionSubmitted(true)
-                  setXp(p => p + 25)
-                  showToast('✓ Safety inspection logged! +25 XP awarded', 'success')
+                  showToast('✓ Safety inspection logged and verified!', 'success')
                 }}
                 style={{
                   width: '100%', padding: '14px', borderRadius: 12,
@@ -1612,8 +1638,8 @@ export default function DriverDashboard() {
               <h3 style={{ margin: '0 0 14px 0', fontSize: 16, fontWeight: 700, color: '#FFF' }}>Driver Statistics & Performance</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, textAlign: 'center' }}>
                 <div style={{ background: '#1C1C21', padding: 14, borderRadius: 10 }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#FFD60A' }}>{xp}</div>
-                  <div style={{ fontSize: 11, color: '#6E6E7A', marginTop: 2 }}>Safety XP</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#FFD60A' }}>{shifts.length}</div>
+                  <div style={{ fontSize: 11, color: '#6E6E7A', marginTop: 2 }}>Recorded Shifts</div>
                 </div>
                 <div style={{ background: '#1C1C21', padding: 14, borderRadius: 10 }}>
                   <div style={{ fontSize: 20, fontWeight: 800, color: '#30D158' }}>{trips.length}</div>

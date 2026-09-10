@@ -21,28 +21,43 @@ export async function GET(req: NextRequest) {
     today.setHours(0, 0, 0, 0)
     const tomorrow = new Date(today.getTime() + 86400000)
 
+    const studentInclude = {
+      organization: { select: { id: true, name: true } },
+      parent: { select: { id: true, name: true, phone: true, email: true } },
+      route: {
+        select: {
+          id: true,
+          name: true,
+          buses: {
+            select: {
+              id: true,
+              plateNumber: true,
+              driver: { select: { id: true, name: true, phone: true } }
+            }
+          }
+        }
+      },
+      pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+      dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+    }
+
     try {
       if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN') {
         students = await prisma.student.findMany({
           include: {
-            parent: { select: { id: true, name: true, phone: true, email: true } },
-            route: { select: { id: true, name: true } },
-            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            ...studentInclude,
             dailyStatuses: {
               where: { date: { gte: today, lt: tomorrow } },
               take: 1,
               select: { status: true }
             }
-          }
+          },
+          orderBy: { createdAt: 'desc' }
         })
       } else if (user.role === 'DRIVER') {
         students = await prisma.student.findMany({
           include: {
-            parent: { select: { id: true, name: true, phone: true, email: true } },
-            route: { select: { id: true, name: true } },
-            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            ...studentInclude,
             dailyStatuses: {
               where: { date: { gte: today, lt: tomorrow } },
               take: 1,
@@ -55,9 +70,7 @@ export async function GET(req: NextRequest) {
         students = await prisma.student.findMany({
           where: { parentId: user.id },
           include: {
-            route: { select: { id: true, name: true } },
-            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            ...studentInclude,
             dailyStatuses: {
               where: { date: { gte: today, lt: tomorrow } },
               take: 1,
@@ -73,31 +86,18 @@ export async function GET(req: NextRequest) {
       // Fallback query without dailyStatuses relation if table is missing
       if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN') {
         students = await prisma.student.findMany({
-          include: {
-            parent: { select: { id: true, name: true, phone: true, email: true } },
-            route: { select: { id: true, name: true } },
-            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          }
+          include: studentInclude,
+          orderBy: { createdAt: 'desc' }
         })
       } else if (user.role === 'DRIVER') {
         students = await prisma.student.findMany({
-          include: {
-            parent: { select: { id: true, name: true, phone: true, email: true } },
-            route: { select: { id: true, name: true } },
-            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          },
+          include: studentInclude,
           orderBy: { name: 'asc' }
         })
       } else if (user.role === 'PARENT') {
         students = await prisma.student.findMany({
           where: { parentId: user.id },
-          include: {
-            route: { select: { id: true, name: true } },
-            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          }
+          include: studentInclude
         })
       }
     }
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
 
     // Validate required fields
-    const { name, grade, level, parentContact1, parentContact2, isSelfPickup, selfPickupSession, routeId, parentId, pickupStopId, dropoffStopId, organizationId } = body
+    const { name, grade, level, parentContact1, parentContact2, isSelfPickup, selfPickupSession, routeId, parentId, pickupStopId, dropoffStopId, organizationId, status } = body
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
       return NextResponse.json({ error: 'Student name must be at least 2 characters' }, { status: 400 })
@@ -143,10 +143,30 @@ export async function POST(req: NextRequest) {
       parentId: parentId || null,
       pickupStopId: pickupStopId || null,
       dropoffStopId: dropoffStopId || null,
-      organizationId: organizationId || null,
+      organizationId: organizationId || (user as any).organizationId || null,
+      status: status || 'APPROVED',
     }
 
-    const student = await prisma.student.create({ data: studentData as Parameters<typeof prisma.student.create>[0]['data'] })
+    const student = await prisma.student.create({
+      data: studentData as Parameters<typeof prisma.student.create>[0]['data'],
+      include: {
+        organization: { select: { id: true, name: true } },
+        parent: { select: { id: true, name: true, phone: true, email: true } },
+        route: {
+          select: {
+            id: true,
+            name: true,
+            buses: {
+              select: {
+                id: true,
+                plateNumber: true,
+                driver: { select: { id: true, name: true, phone: true } }
+              }
+            }
+          }
+        }
+      }
+    })
 
     return NextResponse.json({ student })
   } catch (error) {
