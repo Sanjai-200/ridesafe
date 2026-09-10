@@ -894,18 +894,6 @@ export default function ParentDashboard() {
                   </div>
                 </div>
 
-                {/* Emergency Panic SOS Button */}
-                <button
-                  onClick={async () => {
-                    if (!confirm('🆘 Are you sure you want to send an emergency alert to school dispatch?')) return
-                    playAlert()
-                    await fetch('/api/emergency', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ source:'PARENT' }) })
-                    alert('🆘 Emergency alert sent! School dispatch and transport administration have been notified.')
-                  }}
-                  style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg, #FF453A, #D70015)', color:'#FFFFFF', border:'none', borderRadius:14, fontWeight:800, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 4px 20px rgba(255,69,58,0.35)' }}>
-                  <Shield size={18}/> SOS EMERGENCY ALERT
-                </button>
-
               </div>
             </div>
           </motion.div>

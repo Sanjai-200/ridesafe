@@ -17,6 +17,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Route not found' }, { status: 404 })
     }
 
+    const body = await req.json().catch(() => ({}))
     const {
       name,
       morningTime,
@@ -27,14 +28,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       endPointName,
       endLatitude,
       endLongitude,
-    } = await req.json()
+      stops,
+    } = body
     const updates: Record<string, unknown> = {}
 
     if (name !== undefined) {
       if (!name || !String(name).trim()) {
         return NextResponse.json({ error: 'Route name is required' }, { status: 400 })
       }
-      updates.name = String(name).trim()
+      let candidateName = String(name).trim()
+      let otherRoute = await prisma.route.findFirst({ where: { name: candidateName, NOT: { id } } })
+      let suffix = 2
+      while (otherRoute) {
+        candidateName = `${String(name).trim()} (${suffix})`
+        otherRoute = await prisma.route.findFirst({ where: { name: candidateName, NOT: { id } } })
+        suffix++
+      }
+      updates.name = candidateName
     }
     if (morningTime !== undefined) updates.morningTime = morningTime || null
     if (afternoonTime !== undefined) updates.afternoonTime = afternoonTime || null
@@ -61,20 +71,41 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const route = await prisma.route.update({
       where: { id },
       data: updates,
+    })
+
+    // If stops are passed, sync stops safely
+    if (Array.isArray(stops)) {
+      await prisma.stop.deleteMany({ where: { routeId: id } })
+      for (let idx = 0; idx < stops.length; idx++) {
+        const s = stops[idx]
+        const stopName = String(s.name || `Stop ${idx + 1}`).trim()
+        if (stopName) {
+          await prisma.stop.create({
+            data: {
+              routeId: id,
+              name: stopName,
+              latitude: Number(s.latitude ?? s.lat) || 0,
+              longitude: Number(s.longitude ?? s.lng) || 0,
+              order: idx + 1,
+            }
+          })
+        }
+      }
+    }
+
+    const updatedRouteWithStops = await prisma.route.findUnique({
+      where: { id },
       include: {
         stops: { orderBy: { order: 'asc' } },
         _count: { select: { students: true, buses: true } }
       }
     })
 
-    return NextResponse.json({ route })
+    return NextResponse.json({ route: updatedRouteWithStops })
   } catch (error: unknown) {
-    const code = (error as { code?: string })?.code
-    if (code === 'P2002') {
-      return NextResponse.json({ error: 'A route with this name already exists' }, { status: 409 })
-    }
     console.error('Route update error:', error)
-    return NextResponse.json({ error: 'Failed to update route' }, { status: 500 })
+    const msg = error instanceof Error ? error.message : 'Failed to update route'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 
@@ -98,8 +129,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const code = (error as { code?: string })?.code
     if (code === 'P2003') {
       return NextResponse.json({
-        error: 'Cannot delete this route — it still has buses, students, or trips assigned. Reassign or remove those first.'
-      }, { status: 409 })
+        error: 'Cannot delete route because it has assigned buses or students. Unassign them first.'
+      }, { status: 400 })
     }
     console.error('Route delete error:', error)
     return NextResponse.json({ error: 'Failed to delete route' }, { status: 500 })

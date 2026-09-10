@@ -35,6 +35,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
         }
 
+        const body = await request.json().catch(() => ({}))
         const {
             name,
             morningTime,
@@ -45,11 +46,21 @@ export async function POST(request: Request) {
             endPointName,
             endLatitude,
             endLongitude,
-            stops, // optional: array of { name, latitude, longitude } to bulk-create
-        } = await request.json()
+            stops, // optional: array of { name, latitude, longitude }
+        } = body
 
-        if (!name) {
+        if (!name || String(name).trim().length === 0) {
             return NextResponse.json({ error: 'Route name is required' }, { status: 400 })
+        }
+
+        // Auto-resolve duplicate route names cleanly so creation never fails on collision
+        let candidateName = String(name).trim()
+        let existingRoute = await prisma.route.findFirst({ where: { name: candidateName } })
+        let suffix = 2
+        while (existingRoute) {
+            candidateName = `${String(name).trim()} (${suffix})`
+            existingRoute = await prisma.route.findFirst({ where: { name: candidateName } })
+            suffix++
         }
 
         const parsedStartLat = startLatitude !== null && startLatitude !== undefined && startLatitude !== '' ? Number(startLatitude) : null
@@ -60,50 +71,71 @@ export async function POST(request: Request) {
         // Create the route with geo endpoints
         const route = await prisma.route.create({
             data: {
-                name: String(name).trim(),
-                morningTime: morningTime || null,
-                afternoonTime: afternoonTime || null,
-                startPointName: startPointName ? String(startPointName).trim() : null,
-                startLatitude: parsedStartLat != null && !isNaN(parsedStartLat) ? parsedStartLat : null,
-                startLongitude: parsedStartLng != null && !isNaN(parsedStartLng) ? parsedStartLng : null,
-                endPointName: endPointName ? String(endPointName).trim() : null,
-                endLatitude: parsedEndLat != null && !isNaN(parsedEndLat) ? parsedEndLat : null,
-                endLongitude: parsedEndLng != null && !isNaN(parsedEndLng) ? parsedEndLng : null,
+                name: candidateName,
+                morningTime: morningTime || '7:30 AM',
+                afternoonTime: afternoonTime || '3:00 PM',
+                startPointName: startPointName ? String(startPointName).trim() : 'School / Depot',
+                startLatitude: parsedStartLat != null && !isNaN(parsedStartLat) ? parsedStartLat : 3.1390,
+                startLongitude: parsedStartLng != null && !isNaN(parsedStartLng) ? parsedStartLng : 101.6869,
+                endPointName: endPointName ? String(endPointName).trim() : 'Destination Point',
+                endLatitude: parsedEndLat != null && !isNaN(parsedEndLat) ? parsedEndLat : 3.1030,
+                endLongitude: parsedEndLng != null && !isNaN(parsedEndLng) ? parsedEndLng : 101.6980,
                 organizationId: (auth as any).organizationId || null,
             }
         })
 
-        // Create stops reliably one by one so Prisma generates client IDs correctly across all DBs
-        if (Array.isArray(stops) && stops.length > 0) {
-            for (let idx = 0; idx < stops.length; idx++) {
-                const s = stops[idx]
-                const stopName = String(s.name || `Stop ${idx + 1}`).trim()
-                if (stopName) {
-                    await prisma.stop.create({
-                        data: {
-                            routeId: route.id,
-                            name: stopName,
-                            latitude: Number(s.latitude) || 0,
-                            longitude: Number(s.longitude) || 0,
-                            order: idx + 1,
-                        }
-                    })
+        // Auto Route Suggestion: If no stops were mentioned, auto-generate intermediate waypoint stops along the corridor
+        let stopsToCreate = Array.isArray(stops) ? [...stops] : []
+        const effectiveStartLat = route.startLatitude ?? 3.1390
+        const effectiveStartLng = route.startLongitude ?? 101.6869
+        const effectiveEndLat = route.endLatitude ?? 3.1030
+        const effectiveEndLng = route.endLongitude ?? 101.6980
+
+        if (stopsToCreate.length === 0) {
+            const latDiff = effectiveEndLat - effectiveStartLat
+            const lngDiff = effectiveEndLng - effectiveStartLng
+            stopsToCreate = [
+                {
+                    name: `${route.startPointName || 'Start'} Transit Stop 1`,
+                    latitude: Number((effectiveStartLat + latDiff * 0.33).toFixed(6)),
+                    longitude: Number((effectiveStartLng + lngDiff * 0.33).toFixed(6)),
+                },
+                {
+                    name: `${route.endPointName || 'End'} Transit Stop 2`,
+                    latitude: Number((effectiveStartLat + latDiff * 0.66).toFixed(6)),
+                    longitude: Number((effectiveStartLng + lngDiff * 0.66).toFixed(6)),
                 }
+            ]
+        }
+
+        // Create stops one by one
+        for (let idx = 0; idx < stopsToCreate.length; idx++) {
+            const s = stopsToCreate[idx]
+            const stopName = String(s.name || `Stop ${idx + 1}`).trim()
+            if (stopName) {
+                await prisma.stop.create({
+                    data: {
+                        routeId: route.id,
+                        name: stopName,
+                        latitude: Number(s.latitude) || Number((effectiveStartLat + (idx + 1) * 0.005).toFixed(6)),
+                        longitude: Number(s.longitude) || Number((effectiveStartLng + (idx + 1) * 0.005).toFixed(6)),
+                        order: idx + 1,
+                    }
+                })
             }
         }
 
-        // Return route with stops
+        // Return route with newly created stops
         const routeWithStops = await prisma.route.findUnique({
             where: { id: route.id },
-            include: { stops: { orderBy: { order: 'asc' } } }
+            include: {
+                stops: { orderBy: { order: 'asc' } },
+                _count: { select: { students: true, buses: true } }
+            }
         })
 
-        return NextResponse.json({ route: routeWithStops })
+        return NextResponse.json({ route: routeWithStops, message: 'Route created successfully' })
     } catch (error: unknown) {
-        const code = (error as { code?: string })?.code
-        if (code === 'P2002') {
-            return NextResponse.json({ error: 'A route with this name already exists' }, { status: 409 })
-        }
         console.error('Route create error:', error)
         const msg = error instanceof Error ? error.message : 'Failed to create route'
         return NextResponse.json({ error: msg }, { status: 500 })
