@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db/prisma'
 import { getUserFromSession } from '@/lib/auth/auth'
+import { autoMigrateDatabase } from '@/lib/db/auto-migrate'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
+    // Auto-heal database schema on any settings request
+    await autoMigrateDatabase().catch(console.warn)
+
     let setting = await prisma.systemSetting.findUnique({
       where: { key: 'PICKUP_TIMES' }
     })
