@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
 
     // Validate required fields
-    const { name, grade, level, parentContact1, parentContact2, isSelfPickup, selfPickupSession, routeId, parentId } = body
+    const { name, grade, level, parentContact1, parentContact2, isSelfPickup, selfPickupSession, routeId, parentId, pickupStopId, dropoffStopId, organizationId } = body
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
       return NextResponse.json({ error: 'Student name must be at least 2 characters' }, { status: 400 })
@@ -141,6 +141,9 @@ export async function POST(req: NextRequest) {
       selfPickupSession: selfPickupSession || null,
       routeId: routeId || null,
       parentId: parentId || null,
+      pickupStopId: pickupStopId || null,
+      dropoffStopId: dropoffStopId || null,
+      organizationId: organizationId || null,
     }
 
     const student = await prisma.student.create({ data: studentData as Parameters<typeof prisma.student.create>[0]['data'] })

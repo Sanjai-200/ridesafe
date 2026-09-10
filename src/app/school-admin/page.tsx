@@ -11,6 +11,7 @@ import UsersTab from '@/components/admin/UsersTab'
 import AcademicCalendarTab from '@/components/school-admin/AcademicCalendarTab'
 import AnnouncementsTab from '@/components/school-admin/AnnouncementsTab'
 import AnalyticsTab from '@/components/school-admin/AnalyticsTab'
+import OrganizationsTab from '@/components/admin/OrganizationsTab'
 import { LanguageSwitcher, useTranslation } from '@/i18n/provider'
 import {
   LogOut, Menu, X,
@@ -69,6 +70,7 @@ export default function SchoolAdminDashboard() {
       category: t('schoolAdmin.navGroupOperations'),
       items: [
         { id: 'OVERVIEW',  icon: LayoutDashboard, label: t('nav.overview') },
+        { id: 'ORGANIZATIONS', icon: Building, label: 'Organizations' },
         { id: 'SCHEDULE',  icon: CalendarDays,    label: t('nav.schedule') },
         { id: 'HISTORY',   icon: History,         label: t('nav.history') },
       ]
@@ -284,6 +286,7 @@ export default function SchoolAdminDashboard() {
 
         <div style={{ flex: 1, padding: 24, maxWidth: 1400, width: '100%', margin: '0 auto' }}>
           {activeTab === 'OVERVIEW' && <OverviewTab currentUserRole={currentUserRole} />}
+          {activeTab === 'ORGANIZATIONS' && <OrganizationsTab />}
           {activeTab === 'STUDENTS' && <StudentsTab />}
           {activeTab === 'PARENTS' && <UsersTab currentUserRole={currentUserRole} defaultRoleFilter="PARENT" lockRoleFilter={true} />}
           {activeTab === 'DRIVERS' && <UsersTab currentUserRole={currentUserRole} defaultRoleFilter="DRIVER" lockRoleFilter={true} />}

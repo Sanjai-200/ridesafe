@@ -11,13 +11,31 @@ interface Student {
   parentContact1: string; parentContact2?: string;
   status: string; isSelfPickup: boolean; selfPickupSession?: string;
   busId?: string; bus?: { plateNumber: string }; routeId?: string;
-  route?: { id: string; name: string }; parent?: { id: string; name: string };
+  route?: {
+    id: string;
+    name: string;
+    buses?: {
+      id: string;
+      plateNumber: string;
+      driver?: { id: string; name: string; phone?: string | null } | null
+    }[]
+  };
+  parent?: { id: string; name: string };
   pickupStop?: { id: string; name: string }; dropoffStop?: { id: string; name: string };
 }
 
-interface Route { id: string; name: string }
+interface Route {
+  id: string
+  name: string
+  buses?: {
+    id: string
+    plateNumber: string
+    driver?: { id: string; name: string; phone?: string | null } | null
+  }[]
+}
 interface Stop { id: string; name: string; order: number }
-interface ParentUser { id: string; name: string; email: string }
+interface ParentUser { id: string; name: string; email: string; phone?: string | null }
+interface DriverUser { id: string; name: string; email: string; phone?: string | null }
 
 const SELF_PICKUP_OPTIONS = [
   { value: '',              label: 'Bus Transport (no self-pickup)' },
@@ -27,9 +45,10 @@ const SELF_PICKUP_OPTIONS = [
 ]
 
 const defaultForm = {
-  name: '', grade: '', level: '',
+  name: '', grade: '', level: 'Primary',
   parentContact1: '', parentContact2: '',
   selfPickupSession: '', routeId: '', parentId: '',
+  driverId: '',
   pickupStopId: '', dropoffStopId: '',
 }
 
@@ -52,6 +71,7 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
   const [students, setStudents] = useState<Student[]>([])
   const [routes, setRoutes] = useState<Route[]>([])
   const [parents, setParents] = useState<ParentUser[]>([])
+  const [drivers, setDrivers] = useState<DriverUser[]>([])
   const [routeStops, setRouteStops] = useState<Stop[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -71,7 +91,8 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
     ]).then(([sData, rData, uData]) => {
       setStudents(sData.students || [])
       setRoutes(rData.routes || [])
-      setParents((uData.users || []).filter((u: ParentUser & { role: string }) => u.role === 'PARENT'))
+      setParents((uData.users || []).filter((u: any) => u.role === 'PARENT'))
+      setDrivers((uData.users || []).filter((u: any) => u.role === 'DRIVER'))
       setLoading(false)
     }).catch(console.error)
   }
@@ -95,13 +116,21 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
 
   const openEditModal = (s: Student) => {
     setEditingStudent(s)
+    const selectedRouteId = s.routeId || s.route?.id || ''
+    const matchingRoute = routes.find(r => r.id === selectedRouteId)
+    const assignedDriverId = matchingRoute?.buses?.[0]?.driver?.id || ''
+
     setForm({
       name: s.name, grade: s.grade, level: s.level || 'Primary',
       parentContact1: s.parentContact1, parentContact2: s.parentContact2 || '',
-      selfPickupSession: s.selfPickupSession || '', routeId: s.routeId || s.route?.id || '',
-      parentId: s.parent?.id || '', pickupStopId: s.pickupStop?.id || '', dropoffStopId: s.dropoffStop?.id || '',
+      selfPickupSession: s.selfPickupSession || '',
+      routeId: selectedRouteId,
+      driverId: assignedDriverId,
+      parentId: s.parent?.id || '',
+      pickupStopId: s.pickupStop?.id || '',
+      dropoffStopId: s.dropoffStop?.id || '',
     })
-    if (s.routeId || s.route?.id) loadStopsForRoute(s.routeId || s.route?.id || '')
+    if (selectedRouteId) loadStopsForRoute(selectedRouteId)
     setFormErrors({})
     setShowModal(true)
   }
@@ -292,7 +321,11 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
                 </div>
               </div>
               <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end' }}>
-                {s.route && <span className="badge badge-info">🚌 {s.route.name}</span>}
+                {s.route && (
+                  <span className="badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    🚌 {s.route.name}{s.route.buses?.[0]?.driver?.name ? ` • ${s.route.buses[0].driver.name}` : ''}
+                  </span>
+                )}
                 {s.isSelfPickup ? (
                   <span style={{ color:'var(--info)', display:'flex', alignItems:'center', gap:4 }}>
                     <Check size={14}/>
@@ -380,14 +413,55 @@ export default function StudentsTab({ searchQuery = '' }: { searchQuery?: string
                     ))}
                   </select>
                 </div>
+                {/* Driver Selection Field */}
+                <div className="input-group" style={{ gridColumn:'1/-1' }}>
+                  <label className="input-label">👨‍✈️ Driver Selection (Auto-selects assigned Route & Bus)</label>
+                  <select className="select-field" value={form.driverId} onChange={e => {
+                    const selDriverId = e.target.value
+                    const assignedRoute = routes.find(r => r.buses?.some(b => b.driver?.id === selDriverId))
+                    if (assignedRoute) {
+                      setForm(p => ({ ...p, driverId: selDriverId, routeId: assignedRoute.id, pickupStopId: '', dropoffStopId: '' }))
+                      loadStopsForRoute(assignedRoute.id)
+                    } else {
+                      setForm(p => ({ ...p, driverId: selDriverId }))
+                    }
+                  }}>
+                    <option value="">-- Select Driver (Optional) --</option>
+                    {drivers.map(d => {
+                      const assignedRoute = routes.find(r => r.buses?.some(b => b.driver?.id === d.id))
+                      return (
+                        <option key={d.id} value={d.id}>
+                          {d.name} {d.phone ? `(${d.phone})` : ''} {assignedRoute ? `• Route: ${assignedRoute.name}` : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
+
                 <div className="input-group" style={{ gridColumn:'1/-1' }}>
                   <label className="input-label">Assign Route</label>
                   <select className="select-field" value={form.routeId} onChange={e => {
-                    setForm(p => ({...p, routeId: e.target.value, pickupStopId: '', dropoffStopId: ''}))
-                    loadStopsForRoute(e.target.value)
+                    const rId = e.target.value
+                    const selRoute = routes.find(r => r.id === rId)
+                    const autoDriverId = selRoute?.buses?.[0]?.driver?.id || ''
+                    setForm(p => ({
+                      ...p,
+                      routeId: rId,
+                      driverId: autoDriverId || p.driverId,
+                      pickupStopId: '',
+                      dropoffStopId: ''
+                    }))
+                    loadStopsForRoute(rId)
                   }}>
                     <option value="">No route (self-pickup)</option>
-                    {routes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    {routes.map(r => {
+                      const driverName = r.buses?.[0]?.driver?.name
+                      return (
+                        <option key={r.id} value={r.id}>
+                          {r.name} {r.buses?.[0] ? `(${r.buses[0].plateNumber})` : ''} {driverName ? `• Driver: ${driverName}` : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 {routeStops.length > 0 && (

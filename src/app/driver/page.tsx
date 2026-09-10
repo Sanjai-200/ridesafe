@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Image from 'next/image'
 import { 
-  Bus, ScanFace, Navigation, Timer, GraduationCap, MapPin, AlertTriangle, 
+  Bus, Navigation, Timer, GraduationCap, MapPin, AlertTriangle, 
   ShieldAlert, CheckCircle, RefreshCw, Sparkles, ClipboardCheck, Users, 
   Calendar, Bell, User, Phone, Shield, Clock, Search, Check, X,
-  Radio, Award, AlertCircle, Wrench
+  Radio, AlertCircle, Wrench
 } from 'lucide-react'
 
 import { useAudio } from '@/hooks/useAudio'
@@ -104,7 +104,6 @@ export default function DriverDashboard() {
     }
     busId?: string
     busPlate?: string
-    busQrToken?: string
     driverId?: string
   } | null>(null)
 
@@ -113,8 +112,6 @@ export default function DriverDashboard() {
   const [currentStopIndex, setCurrentStopIndex] = useState(0)
   const [offlineQueue, setOfflineQueue] = useState(0)
   const [tripStartedAt, setTripStartedAt] = useState<Date | null>(null)
-  const [qrScanned, setQrScanned] = useState(false)
-  const [xp, setXp] = useState(120)
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
 
@@ -308,36 +305,6 @@ export default function DriverDashboard() {
     }
   }
 
-  const handleHandshake = async () => {
-    if (!data?.assignedRoute || !data?.busId || !data?.driverId || !data?.busQrToken) {
-      showToast('Bus not fully configured. Auto-assigning fleet route…', 'error')
-      await handleClaimRoute()
-      return
-    }
-    try {
-      const payload = {
-        driverId: data.driverId,
-        busId: data.busId,
-        qrToken: data.busQrToken,
-        deviceId: 'device_' + Math.random().toString(36).substring(2, 11)
-      }
-      const res = await fetch('/api/tracking/handshake', {
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      if (res.ok) {
-        showToast('✓ Verification Success: Dashboard QR Authenticated', 'success')
-        setQrScanned(true)
-      } else {
-        const err = await res.json()
-        showToast(`Verification Failed: ${err.error || 'Unknown error'}`, 'error')
-      }
-    } catch {
-      showToast('Network error during handshake', 'error')
-    }
-  }
-
   const handleStartTrip = async () => {
     if (!data?.assignedRoute) return
     try {
@@ -368,8 +335,7 @@ export default function DriverDashboard() {
         body: JSON.stringify({ status: 'TRIP_COMPLETED' })
       })
       if (res.ok) {
-        setXp(p => p + 50)
-        showToast('🎉 Trip completed! +50 XP recorded to your profile', 'success')
+        showToast('🎉 Trip completed successfully!', 'success')
         setTimeout(fetchStatus, 800)
       }
     } catch { 
@@ -556,12 +522,6 @@ export default function DriverDashboard() {
               </span>
             )}
             <LanguageSwitcher />
-            <div style={{
-              background: '#1C1C21', border: '1px solid #26262C', borderRadius: 10,
-              padding: '6px 12px', fontSize: 13, fontWeight: 700, color: '#FFD60A', display: 'flex', alignItems: 'center', gap: 4
-            }}>
-              <Award size={15} /> {xp} XP
-            </div>
             <button
               onClick={() => { fetch('/api/auth/me', { method: 'POST' }).then(() => router.push('/')) }}
               style={{
@@ -672,7 +632,7 @@ export default function DriverDashboard() {
             {/* Pre-Trip Launchpad (When route is assigned but trip is not active) */}
             {assignedRoute && !activeTrip && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
-                {/* Trip Starter & Handshake Card */}
+                {/* Trip Starter & Assigned Fleet Card */}
                 <div style={{
                   background: '#141417', border: '1px solid #26262C', borderRadius: 16, padding: 24
                 }}>
@@ -681,17 +641,17 @@ export default function DriverDashboard() {
                       width: 40, height: 40, borderRadius: 10,
                       background: 'rgba(255,214,10,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
-                      <ScanFace size={22} color="#FFD60A" />
+                      <Bus size={22} color="#FFD60A" />
                     </div>
                     <div>
-                      <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#FFF' }}>Pre-Trip Bus Handshake</h3>
-                      <div style={{ fontSize: 12, color: '#A6A6B2' }}>Verify identity with bus dashboard QR token</div>
+                      <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#FFF' }}>Pre-Trip Vehicle Readiness</h3>
+                      <div style={{ fontSize: 12, color: '#A6A6B2' }}>Assigned bus & active route session</div>
                     </div>
                   </div>
 
                   <div style={{
                     padding: 14, background: '#1C1C21', borderRadius: 12, border: '1px solid #26262C',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20
                   }}>
                     <div>
                       <div style={{ fontSize: 11, color: '#6E6E7A', textTransform: 'uppercase' }}>Assigned Bus Plate</div>
@@ -700,27 +660,12 @@ export default function DriverDashboard() {
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: '#6E6E7A', textTransform: 'uppercase' }}>QR Status</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: qrScanned ? '#30D158' : '#FF9F0A', marginTop: 2 }}>
-                        {qrScanned ? '✓ Verified' : '○ Pending Scan'}
+                      <div style={{ fontSize: 11, color: '#6E6E7A', textTransform: 'uppercase' }}>Vehicle Status</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#30D158', marginTop: 2 }}>
+                        ✓ Active & Verified
                       </div>
                     </div>
                   </div>
-
-                  <button
-                    onClick={handleHandshake}
-                    style={{
-                      width: '100%', padding: '12px', borderRadius: 10,
-                      background: qrScanned ? 'rgba(48,209,88,0.15)' : 'rgba(255,214,10,0.15)',
-                      border: `1px solid ${qrScanned ? '#30D158' : '#FFD60A'}`,
-                      color: qrScanned ? '#30D158' : '#FFD60A',
-                      fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 20,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
-                    }}
-                  >
-                    <ScanFace size={18} />
-                    {qrScanned ? '✓ Bus QR Authenticated' : 'Simulate Dashboard QR Scan'}
-                  </button>
 
                   {/* Session Selector */}
                   <div style={{ marginBottom: 20 }}>

@@ -24,7 +24,7 @@ function validateOrgFields(name: string | undefined, address: string | undefined
 export async function GET() {
   try {
     const auth = await getUserFromSession()
-    if (!auth || auth.role !== 'SUPER_ADMIN') {
+    if (!auth || !['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN'].includes(auth.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const { ensureSuperAdminSchema } = await import('@/lib/db/ensureSchema')
@@ -45,7 +45,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const auth = await getUserFromSession()
-    if (!auth || auth.role !== 'SUPER_ADMIN') {
+    if (!auth || !['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN'].includes(auth.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const { name, address, phone, subscriptionTier, maxBuses, maxStudents, maxUsers } = await req.json()
@@ -64,14 +64,17 @@ export async function POST(req: NextRequest) {
         address: address?.trim() || null,
         phone: phone?.trim() || null,
         subscriptionTier: subscriptionTier || 'FREE',
-        maxBuses: maxBuses ? Number(maxBuses) : 5,
-        maxStudents: maxStudents ? Number(maxStudents) : 100,
-        maxUsers: maxUsers ? Number(maxUsers) : 20,
+        maxBuses: Number(maxBuses) || 5,
+        maxStudents: Number(maxStudents) || 100,
+        maxUsers: Number(maxUsers) || 10,
+        isActive: true
       },
-      include: { _count: { select: { users: true, students: true, buses: true, routes: true } } }
+      include: {
+        _count: { select: { users: true, students: true, buses: true, routes: true } }
+      }
     })
-    logAudit({ userId: auth.id, action: 'CREATE_ORG', target: 'Organization', targetId: org.id, details: { name: org.name, subscriptionTier: org.subscriptionTier } })
-    return NextResponse.json({ organization: org })
+    logAudit({ userId: auth.id, action: 'CREATE_ORG', target: 'Organization', targetId: org.id, details: { name: org.name } })
+    return NextResponse.json({ organization: org }, { status: 201 })
   } catch (error) {
     console.error('Org create error:', error)
     return NextResponse.json({ error: 'Failed to create organization' }, { status: 500 })
@@ -81,7 +84,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const auth = await getUserFromSession()
-    if (!auth || auth.role !== 'SUPER_ADMIN') {
+    if (!auth || !['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN'].includes(auth.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const { id, name, address, phone, isActive, subscriptionTier, maxBuses, maxStudents, maxUsers } = await req.json()
@@ -118,7 +121,7 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const auth = await getUserFromSession()
-    if (!auth || auth.role !== 'SUPER_ADMIN') {
+    if (!auth || !['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN'].includes(auth.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const { id } = await req.json()

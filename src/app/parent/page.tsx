@@ -50,24 +50,13 @@ import { useAudio } from '@/hooks/useAudio'
 import { useTranslation, LanguageSwitcher } from '@/i18n/provider'
 import CalendarCard from '@/components/parent/CalendarCard'
 import {
-  Target, Flame, ShieldCheck, Sunrise, AlertTriangle, CheckCircle, AlertCircle,
-  Trophy, Medal, Award, Phone, Bus, Clock, Clipboard, Home, XCircle, User,
+  AlertTriangle, CheckCircle, AlertCircle,
+  Phone, Bus, Clock, Clipboard, Home, XCircle, User,
   Settings, Bell, HelpCircle, LogOut, Globe, Navigation, MessageSquare, Shield,
-  ChevronRight, Sparkles, MapPin, Check, Send, Receipt
+  ChevronRight, MapPin, Check, Send, Receipt
 } from 'lucide-react'
 
-// ── Gamification helpers ──────────────────────────────────────────────────────
-const BADGES = [
-  { id: 'first_check', icon: <Target size={16}/>, label: 'First Check-in', xp: 50 },
-  { id: 'week_streak', icon: <Flame size={16}/>, label: '5-Day Streak', xp: 100 },
-  { id: 'safe_rider', icon: <ShieldCheck size={16}/>, label: 'Safe Rider', xp: 75 },
-  { id: 'early_bird', icon: <Sunrise size={16}/>, label: 'Early Bird', xp: 60 },
-]
-function getXP(notifs: NotifData[]): number { return Math.min(notifs.length * 25, 500) }
-function getLevel(xp: number): number { return Math.floor(xp / 100) + 1 }
-function getLevelLabel(lvl: number): string {
-  return ['', 'Rookie', 'Regular', 'Reliable', 'Champion', 'Legend'][Math.min(lvl, 5)] || 'Legend'
-}
+
 
 export default function ParentDashboard() {
   const { locale, setLocale, t } = useTranslation()
@@ -113,11 +102,7 @@ export default function ParentDashboard() {
 
   const router = useRouter()
 
-  // Gamification
-  const xp = getXP(notifications)
-  const level = getLevel(xp)
-  const xpInLevel = xp % 100
-  const earnedBadges = BADGES.slice(0, Math.min(level, BADGES.length))
+
 
   // Request notification permission
   useEffect(() => {
@@ -812,34 +797,6 @@ export default function ParentDashboard() {
               {/* ── RIGHT SIDEBAR COLUMN ── */}
               <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
 
-                {/* Gamification Level & Streak Card */}
-                <div className="parent-card">
-                  <div className="parent-card-header">
-                    <div className="parent-card-title">
-                      <Sparkles size={18} color="#FFD60A"/> Rider Safety Streak
-                    </div>
-                    <span className="parent-badge parent-badge-warning">{xp} XP</span>
-                  </div>
-                  <div style={{ fontSize:14, fontWeight:700, color:'#FFFFFF' }}>
-                    Level {level} — <span style={{ color:'#FFD60A' }}>{getLevelLabel(level)}</span>
-                  </div>
-                  <div className="parent-streak-bar">
-                    <motion.div className="parent-streak-fill" initial={{ width:0 }} animate={{ width:`${xpInLevel}%` }}/>
-                  </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--hc-text-3, #6E6E7A)', marginTop:4 }}>
-                    <span>{xpInLevel} / 100 XP to next tier</span>
-                    <span>{100 - xpInLevel} XP remaining</span>
-                  </div>
-                  {earnedBadges.length > 0 && (
-                    <div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap' }}>
-                      {earnedBadges.map(b => (
-                        <div key={b.id} title={`${b.label} (+${b.xp} XP)`} style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', background:'var(--hc-surface-2, #1C1C21)', borderRadius:8, fontSize:12, color:'#FFFFFF', border:'1px solid var(--hc-line, #26262C)' }}>
-                          <span style={{ color:'#FFD60A' }}>{b.icon}</span> {b.label}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
                 {/* Digital Boarding Pass */}
                 <div className="parent-card" style={{ textAlign:'center', background:'linear-gradient(145deg, #141417, #1C1C21)' }}>
