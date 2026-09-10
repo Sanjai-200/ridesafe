@@ -9,7 +9,6 @@ import '../parent.css'
 import PaymentSection from '@/components/parent/PaymentSection'
 import RecipientPicker from '@/components/parent/RecipientPicker'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 interface StudentData {
   id: string; name: string; grade: string; level: string;
   status: string; photoUrl?: string; pickupTime?: string;
@@ -18,6 +17,7 @@ interface StudentData {
   pickupStop?: { name: string; latitude: number; longitude: number };
   dropoffStop?: { name: string };
   route?: { name: string };
+  dailyStatuses?: { status: string }[];
 }
 interface DriverData {
   id: string; name: string; phone?: string;
@@ -32,6 +32,16 @@ interface NotifData {
 interface MessageData {
   id: string; content: string; read: boolean; createdAt: string;
   sender: { name: string };
+}
+interface AnnouncementItem {
+  id: string;
+  title: string;
+  body: string;
+  type: string;
+  targetRole: string;
+  createdAt: string;
+  senderName?: string;
+  senderRole?: string;
 }
 
 const BusMap = dynamic(() => import('@/components/shared/BusMap'), { ssr: false })
@@ -88,6 +98,8 @@ export default function ParentDashboard() {
   // Parent daily status state
   const [dailyStatus, setDailyStatus] = useState<Record<string, string>>({}) // studentId -> status
   const [reportingStatus, setReportingStatus] = useState<string | null>(null)
+  // Announcements broadcast feed
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
 
   // Profile menu state
   const [me, setMe] = useState<{ name: string; email: string; phone?: string } | null>(null)
@@ -170,12 +182,13 @@ export default function ParentDashboard() {
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [studentsRes, locationRes, notifRes, msgRes, meRes] = await Promise.all([
+        const [studentsRes, locationRes, notifRes, msgRes, meRes, annRes] = await Promise.all([
           fetch('/api/students'),
           fetch('/api/location'),
           fetch('/api/notifications'),
           fetch('/api/messages'),
           fetch('/api/auth/me'),
+          fetch('/api/announcements').catch(() => null),
         ])
         const studentsData = await studentsRes.json()
         const locationData = await locationRes.json()
@@ -185,11 +198,25 @@ export default function ParentDashboard() {
           const meData = await meRes.json()
           if (meData.user) setMe(meData.user)
         }
+        if (annRes && annRes.ok) {
+          const annJson = await annRes.json()
+          setAnnouncements(annJson.announcements || [])
+        }
 
         if (studentsData.error === 'Unauthorized') { router.push('/'); return }
 
         const currentStudents = studentsData.students || []
         setStudents(currentStudents)
+
+        // Initialize today's status map
+        const initialStatus: Record<string, string> = {}
+        for (const s of currentStudents) {
+          if (s.dailyStatuses?.[0]?.status) {
+            initialStatus[s.id] = s.dailyStatuses[0].status
+          }
+        }
+        setDailyStatus(initialStatus)
+
         const driversData = locationData.drivers || []
         setDrivers(driversData)
         checkBusProximity(driversData, currentStudents)
@@ -212,12 +239,17 @@ export default function ParentDashboard() {
 
     const fetchBackgroundData = async () => {
       try {
-        const [notifRes, msgRes] = await Promise.all([
+        const [notifRes, msgRes, annRes] = await Promise.all([
           fetch('/api/notifications'),
           fetch('/api/messages'),
+          fetch('/api/announcements').catch(() => null),
         ])
         const notificationsData = await notifRes.json()
         const msgData = await msgRes.json()
+        if (annRes && annRes.ok) {
+          const annJson = await annRes.json()
+          setAnnouncements(annJson.announcements || [])
+        }
 
         const newNotifs = notificationsData.notifications || []
         setNotifications(newNotifs)
