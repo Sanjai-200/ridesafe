@@ -567,6 +567,87 @@ export default function ParentDashboard() {
                       </div>
                     </div>
 
+                    {/* Today's Daily Transit Status Declaration (1-Tap for Driver manifest) */}
+                    <div style={{
+                      padding: '14px 16px',
+                      background: 'rgba(255,214,10,0.05)',
+                      border: '1px solid rgba(255,214,10,0.2)',
+                      borderRadius: 14,
+                      marginBottom: 16
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#FFD60A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Today&apos;s Daily Transit Status
+                        </div>
+                        {dailyStatus[student.id] && (
+                          <span style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            padding: '3px 10px',
+                            borderRadius: 9999,
+                            background: dailyStatus[student.id] === 'BOARDING' ? 'rgba(48,209,88,0.15)' : 'rgba(255,69,58,0.15)',
+                            color: dailyStatus[student.id] === 'BOARDING' ? '#30D158' : '#FF453A',
+                            border: `1px solid ${dailyStatus[student.id] === 'BOARDING' ? 'rgba(48,209,88,0.3)' : 'rgba(255,69,58,0.3)'}`
+                          }}>
+                            {dailyStatus[student.id] === 'BOARDING' ? '✓ Declared: Boarding Today' : '✕ Declared: Absent Today'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          disabled={reportingStatus === `${student.id}_PARENT_BOARDING`}
+                          onClick={() => reportDailyStatus(student.id, 'PARENT_BOARDING')}
+                          style={{
+                            padding: '10px 14px',
+                            borderRadius: 10,
+                            border: dailyStatus[student.id] === 'BOARDING' ? '2px solid #30D158' : '1px solid rgba(48,209,88,0.3)',
+                            background: dailyStatus[student.id] === 'BOARDING' ? 'rgba(48,209,88,0.2)' : 'rgba(48,209,88,0.08)',
+                            color: '#30D158',
+                            fontWeight: 700,
+                            fontSize: 13,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6
+                          }}
+                        >
+                          <span>🟢</span>
+                          {reportingStatus === `${student.id}_PARENT_BOARDING` ? 'Updating…' : 'Boarding Today'}
+                        </motion.button>
+
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          disabled={reportingStatus === `${student.id}_PARENT_ABSENT_TODAY`}
+                          onClick={() => reportDailyStatus(student.id, 'PARENT_ABSENT_TODAY')}
+                          style={{
+                            padding: '10px 14px',
+                            borderRadius: 10,
+                            border: dailyStatus[student.id] === 'ABSENT_TODAY' ? '2px solid #FF453A' : '1px solid rgba(255,69,58,0.3)',
+                            background: dailyStatus[student.id] === 'ABSENT_TODAY' ? 'rgba(255,69,58,0.2)' : 'rgba(255,69,58,0.08)',
+                            color: '#FF453A',
+                            fontWeight: 700,
+                            fontSize: 13,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6
+                          }}
+                        >
+                          <span>🔴</span>
+                          {reportingStatus === `${student.id}_PARENT_ABSENT_TODAY` ? 'Updating…' : 'Absent Today'}
+                        </motion.button>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--hc-text-3, #6E6E7A)', marginTop: 8, textAlign: 'center' }}>
+                        Driver will see this badge instantly on the manifest to know whether to stop for {student.name}.
+                      </div>
+                    </div>
+
                     {/* Two-Way Confirmation Action Buttons */}
                     {activeTrip && (
                       <div style={{ display:'flex', gap:10, paddingTop:6, borderTop:'1px solid var(--hc-line, #26262C)' }}>
@@ -606,6 +687,66 @@ export default function ParentDashboard() {
                     )}
                   </div>
                 ))}
+
+                {/* School Broadcasts / Announcements Feed */}
+                <div className="parent-card">
+                  <div className="parent-card-header">
+                    <div className="parent-card-title">
+                      <Bell size={18} color="#FFD60A" /> School Notices & Broadcasts
+                    </div>
+                    <span className="parent-badge parent-badge-warning">{announcements.length} Notices</span>
+                  </div>
+
+                  {announcements.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--hc-text-3, #6E6E7A)', fontSize: 13 }}>
+                      No active announcements from school administration.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {announcements.map(ann => (
+                        <div
+                          key={ann.id}
+                          style={{
+                            padding: '14px 16px',
+                            background: 'var(--hc-surface-2, #1C1C21)',
+                            borderRadius: 12,
+                            borderLeft: `4px solid ${ann.type === 'EMERGENCY' ? '#FF453A' : ann.type === 'WEATHER' ? '#0A84FF' : '#FFD60A'}`
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontWeight: 700, fontSize: 14, color: '#FFFFFF' }}>{ann.title}</span>
+                              <span style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                background: ann.type === 'EMERGENCY' ? 'rgba(255,69,58,0.15)' : 'rgba(255,214,10,0.15)',
+                                color: ann.type === 'EMERGENCY' ? '#FF453A' : '#FFD60A'
+                              }}>
+                                {ann.type}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: 11, color: 'var(--hc-text-3, #6E6E7A)' }}>
+                              {new Date(ann.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 13, color: 'var(--hc-text-2, #A6A6B2)', lineHeight: 1.5 }}>
+                            {ann.body}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--hc-text-3, #6E6E7A)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span>Notice by: <strong style={{ color: '#FFF' }}>{ann.senderName || 'School Administration'}</strong></span>
+                            {ann.senderRole && (
+                              <span style={{ background: '#26262C', padding: '1px 5px', borderRadius: 3, fontSize: 10 }}>
+                                {ann.senderRole}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Live Driver & GPS Telemetry Card */}
                 {activeDriver && (
