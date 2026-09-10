@@ -13,21 +13,55 @@ export async function GET(req: NextRequest) {
 
     let students;
 
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today.getTime() + 86400000)
+
     if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN') {
       // Admins see all students
       students = await prisma.student.findMany({
-        include: { parent: { select: { name: true, phone: true } }, route: { select: { id: true, name: true } } }
+        include: {
+          parent: { select: { id: true, name: true, phone: true, email: true } },
+          route: { select: { id: true, name: true } },
+          pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+          dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+          dailyStatuses: {
+            where: { date: { gte: today, lt: tomorrow } },
+            take: 1,
+            select: { status: true }
+          }
+        }
       })
     } else if (user.role === 'DRIVER') {
       // Drivers see all students for the daily bus list
       students = await prisma.student.findMany({
-        include: { parent: { select: { name: true, phone: true } }, route: { select: { id: true, name: true } } },
+        include: {
+          parent: { select: { id: true, name: true, phone: true, email: true } },
+          route: { select: { id: true, name: true } },
+          pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+          dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+          dailyStatuses: {
+            where: { date: { gte: today, lt: tomorrow } },
+            take: 1,
+            select: { status: true }
+          }
+        },
         orderBy: { name: 'asc' }
       })
     } else if (user.role === 'PARENT') {
-      // Parents see only their own students
+      // Parents see only their own students with full route, stop, and daily status info
       students = await prisma.student.findMany({
-        where: { parentId: user.id }
+        where: { parentId: user.id },
+        include: {
+          route: { select: { id: true, name: true } },
+          pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+          dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+          dailyStatuses: {
+            where: { date: { gte: today, lt: tomorrow } },
+            take: 1,
+            select: { status: true }
+          }
+        }
       })
     } else {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
