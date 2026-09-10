@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db/prisma'
 import { getUserFromSession } from '@/lib/auth/auth'
+import { ensureRouteColumns } from '@/lib/db/ensure-route-columns'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,8 +12,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    await ensureRouteColumns()
+
     const { id } = await params
-    const existing = await prisma.route.findUnique({ where: { id } })
+    const existing = await prisma.route.findUnique({ where: { id }, select: { id: true } })
     if (!existing) {
       return NextResponse.json({ error: 'Route not found' }, { status: 404 })
     }
@@ -31,23 +34,37 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       stops,
     } = body
     const updates: Record<string, unknown> = {}
+    const baseUpdates: Record<string, unknown> = {}
 
     if (name !== undefined) {
       if (!name || !String(name).trim()) {
         return NextResponse.json({ error: 'Route name is required' }, { status: 400 })
       }
       let candidateName = String(name).trim()
-      let otherRoute = await prisma.route.findFirst({ where: { name: candidateName, NOT: { id } } })
+      let otherRoute = await prisma.route.findFirst({
+        where: { name: candidateName, NOT: { id } },
+        select: { id: true }
+      })
       let suffix = 2
       while (otherRoute) {
         candidateName = `${String(name).trim()} (${suffix})`
-        otherRoute = await prisma.route.findFirst({ where: { name: candidateName, NOT: { id } } })
+        otherRoute = await prisma.route.findFirst({
+          where: { name: candidateName, NOT: { id } },
+          select: { id: true }
+        })
         suffix++
       }
       updates.name = candidateName
+      baseUpdates.name = candidateName
     }
-    if (morningTime !== undefined) updates.morningTime = morningTime || null
-    if (afternoonTime !== undefined) updates.afternoonTime = afternoonTime || null
+    if (morningTime !== undefined) {
+      updates.morningTime = morningTime || null
+      baseUpdates.morningTime = morningTime || null
+    }
+    if (afternoonTime !== undefined) {
+      updates.afternoonTime = afternoonTime || null
+      baseUpdates.afternoonTime = afternoonTime || null
+    }
 
     if (startPointName !== undefined) updates.startPointName = startPointName ? String(startPointName).trim() : null
     if (startLatitude !== undefined) {
@@ -68,10 +85,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       updates.endLongitude = num != null && !isNaN(num) ? num : null
     }
 
-    const route = await prisma.route.update({
-      where: { id },
-      data: updates,
-    })
+    try {
+      await prisma.route.update({
+        where: { id },
+        data: updates,
+      })
+    } catch (updateErr) {
+      console.warn('Update with geo columns failed, updating base fields:', updateErr)
+      await prisma.route.update({
+        where: { id },
+        data: baseUpdates,
+      })
+    }
 
     // If stops are passed, sync stops safely
     if (Array.isArray(stops)) {
@@ -93,13 +118,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     }
 
-    const updatedRouteWithStops = await prisma.route.findUnique({
-      where: { id },
-      include: {
-        stops: { orderBy: { order: 'asc' } },
-        _count: { select: { students: true, buses: true } }
-      }
-    })
+    let updatedRouteWithStops
+    try {
+      updatedRouteWithStops = await prisma.route.findUnique({
+        where: { id },
+        include: {
+          stops: { orderBy: { order: 'asc' } },
+          _count: { select: { students: true, buses: true } }
+        }
+      })
+    } catch {
+      updatedRouteWithStops = await prisma.route.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          morningTime: true,
+          afternoonTime: true,
+          organizationId: true,
+          createdAt: true,
+          updatedAt: true,
+          stops: { orderBy: { order: 'asc' } },
+          _count: { select: { students: true, buses: true } }
+        }
+      })
+    }
 
     return NextResponse.json({ route: updatedRouteWithStops })
   } catch (error: unknown) {
@@ -117,7 +160,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     }
 
     const { id } = await params
-    const existing = await prisma.route.findUnique({ where: { id } })
+    const existing = await prisma.route.findUnique({ where: { id }, select: { id: true } })
     if (!existing) {
       return NextResponse.json({ error: 'Route not found' }, { status: 404 })
     }

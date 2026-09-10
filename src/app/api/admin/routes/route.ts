@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/prisma'
 import { getUserFromSession } from '@/lib/auth/auth'
+import { ensureRouteColumns } from '@/lib/db/ensure-route-columns'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,15 +12,40 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
         }
 
-        const routes = await prisma.route.findMany({
-            include: {
-                stops: { orderBy: { order: 'asc' } },
-                _count: {
-                    select: { students: true, buses: true }
-                }
-            },
-            orderBy: { createdAt: 'desc' }
-        })
+        // Auto-heal schema if columns are not yet present in PostgreSQL
+        await ensureRouteColumns()
+
+        let routes
+        try {
+            routes = await prisma.route.findMany({
+                include: {
+                    stops: { orderBy: { order: 'asc' } },
+                    _count: {
+                        select: { students: true, buses: true }
+                    }
+                },
+                orderBy: { createdAt: 'desc' }
+            })
+        } catch (findErr) {
+            console.warn('Fallback to base route fields for GET:', findErr)
+            // If postgres column missing, select only confirmed core fields
+            routes = await prisma.route.findMany({
+                select: {
+                    id: true,
+                    name: true,
+                    morningTime: true,
+                    afternoonTime: true,
+                    organizationId: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    stops: { orderBy: { order: 'asc' } },
+                    _count: {
+                        select: { students: true, buses: true }
+                    }
+                },
+                orderBy: { createdAt: 'desc' }
+            })
+        }
 
         return NextResponse.json({ routes })
     } catch (error) {
@@ -35,6 +61,9 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
         }
 
+        // Ensure database columns exist before performing any query
+        await ensureRouteColumns()
+
         const body = await request.json().catch(() => ({}))
         const {
             name,
@@ -46,20 +75,26 @@ export async function POST(request: Request) {
             endPointName,
             endLatitude,
             endLongitude,
-            stops, // optional: array of { name, latitude, longitude }
+            stops, // optional: array of { name, latitude/lat, longitude/lng }
         } = body
 
         if (!name || String(name).trim().length === 0) {
             return NextResponse.json({ error: 'Route name is required' }, { status: 400 })
         }
 
-        // Auto-resolve duplicate route names cleanly so creation never fails on collision
+        // Auto-resolve duplicate route names cleanly; SELECT ONLY id to avoid querying missing columns!
         let candidateName = String(name).trim()
-        let existingRoute = await prisma.route.findFirst({ where: { name: candidateName } })
+        let existingRoute = await prisma.route.findFirst({
+            where: { name: candidateName },
+            select: { id: true }
+        })
         let suffix = 2
         while (existingRoute) {
             candidateName = `${String(name).trim()} (${suffix})`
-            existingRoute = await prisma.route.findFirst({ where: { name: candidateName } })
+            existingRoute = await prisma.route.findFirst({
+                where: { name: candidateName },
+                select: { id: true }
+            })
             suffix++
         }
 
@@ -68,71 +103,107 @@ export async function POST(request: Request) {
         const parsedEndLat = endLatitude !== null && endLatitude !== undefined && endLatitude !== '' ? Number(endLatitude) : null
         const parsedEndLng = endLongitude !== null && endLongitude !== undefined && endLongitude !== '' ? Number(endLongitude) : null
 
-        // Create the route with geo endpoints
-        const route = await prisma.route.create({
-            data: {
-                name: candidateName,
-                morningTime: morningTime || '7:30 AM',
-                afternoonTime: afternoonTime || '3:00 PM',
-                startPointName: startPointName ? String(startPointName).trim() : 'School / Depot',
-                startLatitude: parsedStartLat != null && !isNaN(parsedStartLat) ? parsedStartLat : 3.1390,
-                startLongitude: parsedStartLng != null && !isNaN(parsedStartLng) ? parsedStartLng : 101.6869,
-                endPointName: endPointName ? String(endPointName).trim() : 'Destination Point',
-                endLatitude: parsedEndLat != null && !isNaN(parsedEndLat) ? parsedEndLat : 3.1030,
-                endLongitude: parsedEndLng != null && !isNaN(parsedEndLng) ? parsedEndLng : 101.6980,
-                organizationId: (auth as any).organizationId || null,
-            }
-        })
+        const effectiveStartLat = parsedStartLat != null && !isNaN(parsedStartLat) ? parsedStartLat : 3.1390
+        const effectiveStartLng = parsedStartLng != null && !isNaN(parsedStartLng) ? parsedStartLng : 101.6869
+        const effectiveEndLat = parsedEndLat != null && !isNaN(parsedEndLat) ? parsedEndLat : 3.0890
+        const effectiveEndLng = parsedEndLng != null && !isNaN(parsedEndLng) ? parsedEndLng : 101.6980
+        const effectiveStartName = startPointName ? String(startPointName).trim() : 'School / Depot'
+        const effectiveEndName = endPointName ? String(endPointName).trim() : 'Destination Point'
 
-        // Auto Route Suggestion: If no stops were mentioned, auto-generate intermediate waypoint stops along the corridor
+        // Create the route with fallback if Postgres table has not finished altering
+        let route: { id: string; name: string }
+        try {
+            route = await prisma.route.create({
+                data: {
+                    name: candidateName,
+                    morningTime: morningTime || '7:30 AM',
+                    afternoonTime: afternoonTime || '3:00 PM',
+                    startPointName: effectiveStartName,
+                    startLatitude: effectiveStartLat,
+                    startLongitude: effectiveStartLng,
+                    endPointName: effectiveEndName,
+                    endLatitude: effectiveEndLat,
+                    endLongitude: effectiveEndLng,
+                    organizationId: (auth as any).organizationId || null,
+                }
+            })
+        } catch (createErr) {
+            console.warn('Direct create with geo columns failed, creating base route:', createErr)
+            route = await prisma.route.create({
+                data: {
+                    name: candidateName,
+                    morningTime: morningTime || '7:30 AM',
+                    afternoonTime: afternoonTime || '3:00 PM',
+                    organizationId: (auth as any).organizationId || null,
+                }
+            })
+        }
+
+        // Auto Route Suggestion: If no stops were specified, auto-generate intermediate waypoint stops along the corridor
         let stopsToCreate = Array.isArray(stops) ? [...stops] : []
-        const effectiveStartLat = route.startLatitude ?? 3.1390
-        const effectiveStartLng = route.startLongitude ?? 101.6869
-        const effectiveEndLat = route.endLatitude ?? 3.1030
-        const effectiveEndLng = route.endLongitude ?? 101.6980
 
         if (stopsToCreate.length === 0) {
             const latDiff = effectiveEndLat - effectiveStartLat
             const lngDiff = effectiveEndLng - effectiveStartLng
             stopsToCreate = [
                 {
-                    name: `${route.startPointName || 'Start'} Transit Stop 1`,
+                    name: `${effectiveStartName} Transit Stop 1`,
                     latitude: Number((effectiveStartLat + latDiff * 0.33).toFixed(6)),
                     longitude: Number((effectiveStartLng + lngDiff * 0.33).toFixed(6)),
                 },
                 {
-                    name: `${route.endPointName || 'End'} Transit Stop 2`,
+                    name: `${effectiveEndName} Transit Stop 2`,
                     latitude: Number((effectiveStartLat + latDiff * 0.66).toFixed(6)),
                     longitude: Number((effectiveStartLng + lngDiff * 0.66).toFixed(6)),
                 }
             ]
         }
 
-        // Create stops one by one
+        // Create intermediate stops in prisma.stop (which is 100% standard in postgres)
         for (let idx = 0; idx < stopsToCreate.length; idx++) {
             const s = stopsToCreate[idx]
             const stopName = String(s.name || `Stop ${idx + 1}`).trim()
             if (stopName) {
+                const sLat = Number(s.latitude ?? s.lat)
+                const sLng = Number(s.longitude ?? s.lng)
                 await prisma.stop.create({
                     data: {
                         routeId: route.id,
                         name: stopName,
-                        latitude: Number(s.latitude) || Number((effectiveStartLat + (idx + 1) * 0.005).toFixed(6)),
-                        longitude: Number(s.longitude) || Number((effectiveStartLng + (idx + 1) * 0.005).toFixed(6)),
+                        latitude: !isNaN(sLat) && sLat !== 0 ? sLat : Number((effectiveStartLat + (idx + 1) * 0.005).toFixed(6)),
+                        longitude: !isNaN(sLng) && sLng !== 0 ? sLng : Number((effectiveStartLng + (idx + 1) * 0.005).toFixed(6)),
                         order: idx + 1,
                     }
                 })
             }
         }
 
-        // Return route with newly created stops
-        const routeWithStops = await prisma.route.findUnique({
-            where: { id: route.id },
-            include: {
-                stops: { orderBy: { order: 'asc' } },
-                _count: { select: { students: true, buses: true } }
-            }
-        })
+        // Return route with newly created stops safely
+        let routeWithStops
+        try {
+            routeWithStops = await prisma.route.findUnique({
+                where: { id: route.id },
+                include: {
+                    stops: { orderBy: { order: 'asc' } },
+                    _count: { select: { students: true, buses: true } }
+                }
+            })
+        } catch {
+            routeWithStops = await prisma.route.findUnique({
+                where: { id: route.id },
+                select: {
+                    id: true,
+                    name: true,
+                    morningTime: true,
+                    afternoonTime: true,
+                    organizationId: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    stops: { orderBy: { order: 'asc' } },
+                    _count: { select: { students: true, buses: true } }
+                }
+            })
+        }
 
         return NextResponse.json({ route: routeWithStops, message: 'Route created successfully' })
     } catch (error: unknown) {
