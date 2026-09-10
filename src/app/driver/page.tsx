@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Image from 'next/image'
-import { Bus, ScanFace, Navigation, Timer, GraduationCap, MapPin, AlertTriangle, Info, ShieldAlert, CheckCircle } from 'lucide-react'
+import { Bus, ScanFace, Navigation, Timer, GraduationCap, MapPin, AlertTriangle, Info, ShieldAlert, CheckCircle, RefreshCw, Sparkles } from 'lucide-react'
 
 import { useAudio } from '@/hooks/useAudio'
 import CameraCapture from '@/components/driver/CameraCapture'
@@ -89,6 +89,7 @@ export default function DriverDashboard() {
   const [delayMinutes, setDelayMinutes] = useState(15)
   const [delayReason, setDelayReason] = useState('Heavy Traffic')
   const [sendingDelay, setSendingDelay] = useState(false)
+  const [claimingRoute, setClaimingRoute] = useState(false)
   // Session (MORNING / AFTERNOON) — driver must manually pick
   const [tripSession, setTripSession] = useState<'MORNING' | 'AFTERNOON'>('MORNING')
   // Daily status board: parent-reported status per student
@@ -177,6 +178,24 @@ export default function DriverDashboard() {
     window.addEventListener('online', flushQueue)
     return () => window.removeEventListener('online', flushQueue)
   }, [fetchStatus])
+
+  const handleClaimRoute = async () => {
+    setClaimingRoute(true)
+    try {
+      const res = await fetch('/api/driver/claim-route', { method: 'POST' })
+      const json = await res.json()
+      if (res.ok) {
+        showToast('Bus & Route successfully assigned!', 'success')
+        await fetchStatus()
+      } else {
+        showToast(json.error || 'Failed to assign route', 'error')
+      }
+    } catch (e: any) {
+      showToast(e.message || 'Network error', 'error')
+    } finally {
+      setClaimingRoute(false)
+    }
+  }
 
   const handleHandshake = async () => {
     if (!data?.assignedRoute || !data?.busId || !data?.driverId || !data?.busQrToken) {
@@ -320,10 +339,78 @@ export default function DriverDashboard() {
 
       {/* No Route */}
       {!assignedRoute && (
-        <motion.div initial={{ opacity:0, scale:0.95 }} animate={{ opacity:1, scale:1 }} className="glass-panel" style={{ padding:'3rem', textAlign:'center' }}>
-          <div style={{ marginBottom:'1rem', display:'flex', justifyContent:'center' }}><Bus size={64} color="var(--bus-yellow)"/></div>
-          <h2>{t('driver.noActiveTrip')}</h2>
-          <p style={{ color:'var(--text-muted)' }}>Please contact the Administrator to assign you to a Bus and Route.</p>
+        <motion.div initial={{ opacity:0, scale:0.95 }} animate={{ opacity:1, scale:1 }}
+          style={{
+            background: 'linear-gradient(180deg, #141417 0%, #0E0E11 100%)',
+            border: '1px solid #26262C',
+            borderRadius: 20,
+            padding: '3rem 2rem',
+            textAlign: 'center',
+            maxWidth: 580,
+            margin: '2rem auto',
+            boxShadow: '0 24px 48px rgba(0,0,0,0.6)'
+          }}>
+          <div style={{
+            width: 76, height: 76, borderRadius: '50%',
+            background: 'rgba(255,214,10,0.12)', border: '1px solid rgba(255,214,10,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 1.5rem auto'
+          }}>
+            <Bus size={40} color="#FFD60A" />
+          </div>
+          <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.6rem' }}>
+            {t('driver.noActiveTrip')}
+          </h2>
+          <p style={{ color: '#A6A6B2', fontSize: '0.95rem', maxWidth: 440, margin: '0 auto 1.75rem auto', lineHeight: 1.5 }}>
+            No bus or route is currently assigned to your driver account. You can auto-link to Morning Route A below to immediately activate your Driver Cockpit.
+          </p>
+
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleClaimRoute}
+              disabled={claimingRoute}
+              style={{
+                padding: '0.9rem 2rem',
+                borderRadius: 9999,
+                background: '#FFD60A',
+                color: '#08080A',
+                fontWeight: 800,
+                fontSize: '1rem',
+                border: 'none',
+                cursor: claimingRoute ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: '0 8px 24px rgba(255,214,10,0.25)',
+                opacity: claimingRoute ? 0.7 : 1
+              }}>
+              <Sparkles size={18} />
+              {claimingRoute ? 'Assigning Fleet Route...' : 'Auto-Assign Bus & Route'}
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={fetchStatus}
+              style={{
+                padding: '0.9rem 1.5rem',
+                borderRadius: 9999,
+                background: 'rgba(255,255,255,0.06)',
+                color: '#FFFFFF',
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                border: '1px solid #26262C',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6
+              }}>
+              <RefreshCw size={16} />
+              {t('common.refresh')}
+            </motion.button>
+          </div>
         </motion.div>
       )}
 

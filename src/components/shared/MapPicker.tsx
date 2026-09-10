@@ -38,7 +38,17 @@ export default function MapPicker({
 
   // Sync external value changes
   useEffect(() => {
-    if (value) setCoords(value)
+    if (value) {
+      setCoords(value)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const map = leafletMapRef.current as any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const marker = markerRef.current as any
+      if (map && marker) {
+        marker.setLatLng([value.lat, value.lng])
+        map.panTo([value.lat, value.lng])
+      }
+    }
   }, [value])
 
   useEffect(() => {

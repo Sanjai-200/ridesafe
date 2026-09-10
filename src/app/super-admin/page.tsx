@@ -8,6 +8,7 @@ import SuperAdminOverviewTab from '@/components/super-admin/OverviewTab'
 import OrganizationsTab from '@/components/super-admin/OrganizationsTab'
 import SuperUsersTab from '@/components/super-admin/SuperUsersTab'
 import StudentsTab from '@/components/super-admin/StudentsTab'
+import SuperAdminAnnouncementsTab from '@/components/super-admin/AnnouncementsTab'
 import SuperAdminSystemSettingsTab from '@/components/super-admin/SystemSettingsTab'
 import AuditLogTab from '@/components/super-admin/AuditLogTab'
 import GlobalAnalyticsTab from '@/components/super-admin/GlobalAnalyticsTab'
@@ -15,7 +16,7 @@ import { LanguageSwitcher, useTranslation } from '@/i18n/provider'
 import {
   LogOut, Menu, X, ShieldAlert,
   LayoutDashboard, Users2, Building2, ShieldCheck, Settings,
-  ArrowRight, Sparkles, Terminal, FileText, BarChart3, GraduationCap
+  ArrowRight, Sparkles, Terminal, FileText, BarChart3, GraduationCap, Megaphone
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 

@@ -1,13 +1,10 @@
 'use client'
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle, AlertTriangle, Bus, Plus, Pencil, Trash2, MapPin, Settings2, X, Navigation } from 'lucide-react'
 import { useTranslation } from '@/i18n/provider'
+import GeoLocationPicker, { LatLng } from '@/components/shared/GeoLocationPicker'
 
-// Lazy load MapPicker (Leaflet requires browser/window)
-const MapPicker = lazy(() => import('@/components/shared/MapPicker'))
-
-interface LatLng { lat: number; lng: number }
 interface StopDraft { name: string; coords: LatLng | null }
 
 const defaultBusForm = { plateNumber: '', capacity: '30', driverId: '', routeId: '', wialonUnitId: '', katsanaVehicleId: '' }
@@ -152,8 +149,6 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
     const openAddRouteModal = () => {
         setEditingRouteId(null)
         setRouteForm(defaultRouteForm)
-        setActiveEndpointMap(null)
-        setActiveStopMapIdx(null)
         setShowRouteModal(true)
     }
 
@@ -164,24 +159,20 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
             morningTime: r.morningTime || '',
             afternoonTime: r.afternoonTime || '',
             startPointName: r.startPointName || '',
-            startCoords: (r.startLatitude && r.startLongitude) ? { lat: r.startLatitude, lng: r.startLongitude } : null,
+            startCoords: (r.startLatitude != null && r.startLongitude != null) ? { lat: Number(r.startLatitude), lng: Number(r.startLongitude) } : null,
             endPointName: r.endPointName || '',
-            endCoords: (r.endLatitude && r.endLongitude) ? { lat: r.endLatitude, lng: r.endLongitude } : null,
+            endCoords: (r.endLatitude != null && r.endLongitude != null) ? { lat: Number(r.endLatitude), lng: Number(r.endLongitude) } : null,
             stops: [],
         })
-        setActiveEndpointMap(null)
-        setActiveStopMapIdx(null)
         setShowRouteModal(true)
     }
 
     const addStopDraft = () => {
-        setRouteForm(f => ({ ...f, stops: [...f.stops, { name: '', coords: null }] }))
-        setActiveStopMapIdx(routeForm.stops.length)
+        setRouteForm(f => ({ ...f, stops: [...f.stops, { name: `Stop ${f.stops.length + 1}`, coords: null }] }))
     }
 
     const removeStopDraft = (idx: number) => {
         setRouteForm(f => ({ ...f, stops: f.stops.filter((_, i) => i !== idx) }))
-        if (activeStopMapIdx === idx) setActiveStopMapIdx(null)
     }
 
     const handleAddRoute = async (e: React.FormEvent) => {
@@ -191,13 +182,13 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
         }
         try {
             const payload: Record<string, unknown> = {
-                name: routeForm.name,
+                name: routeForm.name.trim(),
                 morningTime: routeForm.morningTime,
                 afternoonTime: routeForm.afternoonTime,
-                startPointName: routeForm.startPointName || null,
+                startPointName: routeForm.startPointName?.trim() || null,
                 startLatitude: routeForm.startCoords?.lat ?? null,
                 startLongitude: routeForm.startCoords?.lng ?? null,
-                endPointName: routeForm.endPointName || null,
+                endPointName: routeForm.endPointName?.trim() || null,
                 endLatitude: routeForm.endCoords?.lat ?? null,
                 endLongitude: routeForm.endCoords?.lng ?? null,
             }
@@ -205,8 +196,12 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
             // For new routes, include stops in the payload for bulk creation
             if (!editingRouteId && routeForm.stops.length > 0) {
                 payload.stops = routeForm.stops
-                    .filter(s => s.name.trim())
-                    .map(s => ({ name: s.name, latitude: s.coords?.lat || 0, longitude: s.coords?.lng || 0 }))
+                    .map((s, idx) => ({
+                        name: (s.name || `Stop ${idx + 1}`).trim(),
+                        latitude: s.coords?.lat || 0,
+                        longitude: s.coords?.lng || 0,
+                    }))
+                    .filter(s => s.name.length > 0)
             }
 
             const res = editingRouteId
@@ -217,8 +212,6 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                 setRouteForm(defaultRouteForm)
                 setEditingRouteId(null)
                 setShowRouteModal(false)
-                setActiveEndpointMap(null)
-                setActiveStopMapIdx(null)
                 loadData()
             } else {
                 const err = await res.json()
@@ -331,11 +324,21 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                                             </div>
                                         ))}
 
-                                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                                            <input type="text" placeholder="Stop Name" className="input-field" style={{ marginBottom: 0, padding: '0.5rem', flex: 1 }} value={newStop.name} onChange={e => setNewStop({ ...newStop, name: e.target.value })} />
-                                            <input type="number" placeholder="Lat" className="input-field" style={{ marginBottom: 0, padding: '0.5rem', width: 90 }} value={newStop.latitude} onChange={e => setNewStop({ ...newStop, latitude: e.target.value })} />
-                                            <input type="number" placeholder="Lng" className="input-field" style={{ marginBottom: 0, padding: '0.5rem', width: 90 }} value={newStop.longitude} onChange={e => setNewStop({ ...newStop, longitude: e.target.value })} />
-                                            <button className="btn btn-success" style={{ padding: '0.5rem 1rem' }} onClick={handleAddStop}>Add Stop</button>
+                                        <div style={{ marginTop: '1rem', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: 10, border: '1px solid var(--surface-border)' }}>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.75rem' }}>+ Add Stop to Route</div>
+                                            <div className="input-group" style={{ marginBottom: '0.75rem' }}>
+                                                <label className="input-label">Stop Name</label>
+                                                <input type="text" placeholder="e.g. Jalan Permata 3" className="input-field" value={newStop.name} onChange={e => setNewStop({ ...newStop, name: e.target.value })} />
+                                            </div>
+                                            <GeoLocationPicker
+                                                value={newStop.latitude && newStop.longitude ? { lat: parseFloat(newStop.latitude), lng: parseFloat(newStop.longitude) } : null}
+                                                onChange={coords => setNewStop({ ...newStop, latitude: coords ? String(coords.lat) : '', longitude: coords ? String(coords.lng) : '' })}
+                                                label="Stop Geolocation Coordinates"
+                                                markerColor="#FFD60A"
+                                            />
+                                            <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
+                                                <button className="btn btn-success" style={{ padding: '0.5rem 1.25rem', fontWeight: 700 }} onClick={handleAddStop}>+ Add Stop</button>
+                                            </div>
                                         </div>
                                     </motion.div>
                                 )}
@@ -455,72 +458,46 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                                 </div>
 
                                 {/* Start Point */}
-                                <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
+                                <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
-                                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Start Point (School / Depot)</span>
+                                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Start Point (School / Depot)</span>
                                     </div>
-                                    <div className="input-group" style={{ marginBottom: '0.75rem' }}>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
                                         <label className="input-label">Start Point Name</label>
                                         <input type="text" className="input-field" placeholder="e.g. SJK Taman Maju" value={routeForm.startPointName} onChange={e => setRouteForm({...routeForm, startPointName: e.target.value})} />
                                     </div>
-                                    <button type="button" className="btn" style={{ background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e', padding: '0.4rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6, marginBottom: '0.5rem' }}
-                                        onClick={() => setActiveEndpointMap(activeEndpointMap === 'start' ? null : 'start')}>
-                                        <MapPin size={13} /> {activeEndpointMap === 'start' ? 'Close Map' : (routeForm.startCoords ? 'Change Start Pin' : 'Pin Start on Map')}
-                                    </button>
-                                    {activeEndpointMap === 'start' && (
-                                        <Suspense fallback={<div style={{ height: 280, background: 'rgba(255,255,255,0.03)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading map…</div>}>
-                                            <MapPicker
-                                                value={routeForm.startCoords}
-                                                onChange={coords => setRouteForm(f => ({ ...f, startCoords: coords }))}
-                                                label="Click to pin the start point"
-                                                markerColor="#22c55e"
-                                            />
-                                        </Suspense>
-                                    )}
-                                    {routeForm.startCoords && !activeEndpointMap && (
-                                        <div style={{ fontSize: '0.78rem', color: '#22c55e' }}>
-                                            ✓ Pinned: {routeForm.startCoords.lat.toFixed(5)}, {routeForm.startCoords.lng.toFixed(5)}
-                                        </div>
-                                    )}
+                                    <GeoLocationPicker
+                                        value={routeForm.startCoords}
+                                        onChange={coords => setRouteForm(f => ({ ...f, startCoords: coords }))}
+                                        label="Start Point Coordinates"
+                                        markerColor="#22c55e"
+                                    />
                                 </div>
 
                                 {/* End Point */}
-                                <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
+                                <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
-                                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>End Point (Last Drop)</span>
+                                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>End Point (Last Drop Destination)</span>
                                     </div>
-                                    <div className="input-group" style={{ marginBottom: '0.75rem' }}>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
                                         <label className="input-label">End Point Name</label>
                                         <input type="text" className="input-field" placeholder="e.g. Taman Sentosa" value={routeForm.endPointName} onChange={e => setRouteForm({...routeForm, endPointName: e.target.value})} />
                                     </div>
-                                    <button type="button" className="btn" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', padding: '0.4rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6, marginBottom: '0.5rem' }}
-                                        onClick={() => setActiveEndpointMap(activeEndpointMap === 'end' ? null : 'end')}>
-                                        <MapPin size={13} /> {activeEndpointMap === 'end' ? 'Close Map' : (routeForm.endCoords ? 'Change End Pin' : 'Pin End on Map')}
-                                    </button>
-                                    {activeEndpointMap === 'end' && (
-                                        <Suspense fallback={<div style={{ height: 280, background: 'rgba(255,255,255,0.03)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading map…</div>}>
-                                            <MapPicker
-                                                value={routeForm.endCoords}
-                                                onChange={coords => setRouteForm(f => ({ ...f, endCoords: coords }))}
-                                                label="Click to pin the end point"
-                                                markerColor="#ef4444"
-                                            />
-                                        </Suspense>
-                                    )}
-                                    {routeForm.endCoords && !activeEndpointMap && (
-                                        <div style={{ fontSize: '0.78rem', color: '#ef4444' }}>
-                                            ✓ Pinned: {routeForm.endCoords.lat.toFixed(5)}, {routeForm.endCoords.lng.toFixed(5)}
-                                        </div>
-                                    )}
+                                    <GeoLocationPicker
+                                        value={routeForm.endCoords}
+                                        onChange={coords => setRouteForm(f => ({ ...f, endCoords: coords }))}
+                                        label="End Point Coordinates"
+                                        markerColor="#ef4444"
+                                    />
                                 </div>
 
                                 {/* Stops (only on new route creation) */}
                                 {!editingRouteId && (
                                     <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1rem' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                                            <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>🚏 Boarding Stops ({routeForm.stops.length})</span>
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>🚏 Boarding Stops ({routeForm.stops.length})</span>
                                             <button type="button" className="btn" style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', background: 'rgba(255,214,10,0.15)', border: '1px solid rgba(255,214,10,0.3)', color: 'var(--bus-yellow)', display: 'flex', alignItems: 'center', gap: 6 }}
                                                 onClick={addStopDraft}>
                                                 <Plus size={13} /> Add Stop
@@ -528,9 +505,9 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                                         </div>
 
                                         {routeForm.stops.map((stop, idx) => (
-                                            <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '0.75rem', marginBottom: '0.75rem', border: '1px solid var(--surface-border)' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
-                                                    <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--primary)', color: '#08080A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700 }}>{idx + 1}</div>
+                                            <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '0.85rem', marginBottom: '0.75rem', border: '1px solid var(--surface-border)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
+                                                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--primary)', color: '#08080A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 800 }}>{idx + 1}</div>
                                                     <input
                                                         type="text"
                                                         className="input-field"
@@ -544,41 +521,25 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                                                         }}
                                                     />
                                                     <button type="button" onClick={() => removeStopDraft(idx)}
-                                                        style={{ background: 'none', border: '1px solid rgba(255,69,58,0.3)', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--danger)', display: 'flex' }}>
-                                                        <X size={12} />
+                                                        style={{ background: 'none', border: '1px solid rgba(255,69,58,0.3)', borderRadius: 6, padding: '4px 7px', cursor: 'pointer', color: 'var(--danger)', display: 'flex' }}>
+                                                        <X size={13} />
                                                     </button>
                                                 </div>
-                                                <button type="button" className="btn" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', background: 'rgba(255,214,10,0.1)', border: '1px solid rgba(255,214,10,0.2)', color: 'var(--bus-yellow)', display: 'flex', alignItems: 'center', gap: 5 }}
-                                                    onClick={() => setActiveStopMapIdx(activeStopMapIdx === idx ? null : idx)}>
-                                                    <MapPin size={11} /> {activeStopMapIdx === idx ? 'Close Map' : (stop.coords ? 'Change Pin' : 'Pin on Map')}
-                                                </button>
-                                                {activeStopMapIdx === idx && (
-                                                    <div style={{ marginTop: '0.5rem' }}>
-                                                        <Suspense fallback={<div style={{ height: 240, background: 'rgba(255,255,255,0.03)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading map…</div>}>
-                                                            <MapPicker
-                                                                value={stop.coords}
-                                                                height={240}
-                                                                onChange={coords => {
-                                                                    const stops = [...routeForm.stops]
-                                                                    stops[idx] = { ...stops[idx], coords }
-                                                                    setRouteForm(f => ({ ...f, stops }))
-                                                                }}
-                                                                label={`Click to pin stop ${idx + 1}`}
-                                                                markerColor="#FFD60A"
-                                                            />
-                                                        </Suspense>
-                                                    </div>
-                                                )}
-                                                {stop.coords && activeStopMapIdx !== idx && (
-                                                    <div style={{ fontSize: '0.75rem', color: 'var(--bus-yellow)', marginTop: '0.25rem' }}>
-                                                        ✓ {stop.coords.lat.toFixed(5)}, {stop.coords.lng.toFixed(5)}
-                                                    </div>
-                                                )}
+                                                <GeoLocationPicker
+                                                    value={stop.coords}
+                                                    onChange={coords => {
+                                                        const stops = [...routeForm.stops]
+                                                        stops[idx] = { ...stops[idx], coords }
+                                                        setRouteForm(f => ({ ...f, stops }))
+                                                    }}
+                                                    label={`Stop ${idx + 1} Coordinates`}
+                                                    markerColor="#FFD60A"
+                                                />
                                             </div>
                                         ))}
                                         {routeForm.stops.length === 0 && (
                                             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>
-                                                No stops added yet. You can add them after route creation too.
+                                                No stops added yet. You can add stops now with coordinates or after route creation in Manage Stops.
                                             </div>
                                         )}
                                     </div>

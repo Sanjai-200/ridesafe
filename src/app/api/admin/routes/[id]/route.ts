@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await getUserFromSession()
-    if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN')) {
+    if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN' && auth.role !== 'SCHOOL_ADMIN')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -17,7 +17,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Route not found' }, { status: 404 })
     }
 
-    const { name, morningTime, afternoonTime } = await req.json()
+    const {
+      name,
+      morningTime,
+      afternoonTime,
+      startPointName,
+      startLatitude,
+      startLongitude,
+      endPointName,
+      endLatitude,
+      endLongitude,
+    } = await req.json()
     const updates: Record<string, unknown> = {}
 
     if (name !== undefined) {
@@ -29,10 +39,32 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (morningTime !== undefined) updates.morningTime = morningTime || null
     if (afternoonTime !== undefined) updates.afternoonTime = afternoonTime || null
 
+    if (startPointName !== undefined) updates.startPointName = startPointName ? String(startPointName).trim() : null
+    if (startLatitude !== undefined) {
+      const num = startLatitude !== null && startLatitude !== '' ? Number(startLatitude) : null
+      updates.startLatitude = num != null && !isNaN(num) ? num : null
+    }
+    if (startLongitude !== undefined) {
+      const num = startLongitude !== null && startLongitude !== '' ? Number(startLongitude) : null
+      updates.startLongitude = num != null && !isNaN(num) ? num : null
+    }
+    if (endPointName !== undefined) updates.endPointName = endPointName ? String(endPointName).trim() : null
+    if (endLatitude !== undefined) {
+      const num = endLatitude !== null && endLatitude !== '' ? Number(endLatitude) : null
+      updates.endLatitude = num != null && !isNaN(num) ? num : null
+    }
+    if (endLongitude !== undefined) {
+      const num = endLongitude !== null && endLongitude !== '' ? Number(endLongitude) : null
+      updates.endLongitude = num != null && !isNaN(num) ? num : null
+    }
+
     const route = await prisma.route.update({
       where: { id },
       data: updates,
-      include: { _count: { select: { students: true, buses: true } } }
+      include: {
+        stops: { orderBy: { order: 'asc' } },
+        _count: { select: { students: true, buses: true } }
+      }
     })
 
     return NextResponse.json({ route })
@@ -49,7 +81,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await getUserFromSession()
-    if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN')) {
+    if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN' && auth.role !== 'SCHOOL_ADMIN')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

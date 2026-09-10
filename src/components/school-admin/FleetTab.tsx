@@ -2,9 +2,17 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle, AlertTriangle, Bus, Plus, Pencil, Trash2, MapPin, Settings2, X } from 'lucide-react'
 import { useTranslation } from '@/i18n/provider'
+import GeoLocationPicker, { LatLng } from '@/components/shared/GeoLocationPicker'
+
+interface StopDraft { name: string; coords: LatLng | null }
 
 const defaultBusForm = { plateNumber: '', capacity: '30', driverId: '', routeId: '', wialonUnitId: '', katsanaVehicleId: '' }
-const defaultRouteForm = { name: '', morningTime: '7:30 AM', afternoonTime: '3:00 PM' }
+const defaultRouteForm = {
+    name: '', morningTime: '7:30 AM', afternoonTime: '3:00 PM',
+    startPointName: '', startCoords: null as LatLng | null,
+    endPointName: '', endCoords: null as LatLng | null,
+    stops: [] as StopDraft[],
+}
 
 export default function FleetTab({ searchQuery = '' }: { searchQuery?: string }) {
     const { t } = useTranslation()
@@ -140,8 +148,25 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
     const openEditRouteModal = (r: any) => {
         setEditingRouteId(r.id)
-        setRouteForm({ name: r.name, morningTime: r.morningTime || '', afternoonTime: r.afternoonTime || '' })
+        setRouteForm({
+            name: r.name,
+            morningTime: r.morningTime || '',
+            afternoonTime: r.afternoonTime || '',
+            startPointName: r.startPointName || '',
+            startCoords: (r.startLatitude != null && r.startLongitude != null) ? { lat: Number(r.startLatitude), lng: Number(r.startLongitude) } : null,
+            endPointName: r.endPointName || '',
+            endCoords: (r.endLatitude != null && r.endLongitude != null) ? { lat: Number(r.endLatitude), lng: Number(r.endLongitude) } : null,
+            stops: [],
+        })
         setShowRouteModal(true)
+    }
+
+    const addStopDraft = () => {
+        setRouteForm(f => ({ ...f, stops: [...f.stops, { name: `Stop ${f.stops.length + 1}`, coords: null }] }))
+    }
+
+    const removeStopDraft = (idx: number) => {
+        setRouteForm(f => ({ ...f, stops: f.stops.filter((_, i) => i !== idx) }))
     }
 
     const handleAddRoute = async (e: React.FormEvent) => {
@@ -150,10 +175,33 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
             alert('Route name must be at least 2 characters'); return
         }
         try {
-            const payload = { name: routeForm.name, morningTime: routeForm.morningTime, afternoonTime: routeForm.afternoonTime }
+            const payload: Record<string, unknown> = {
+                name: routeForm.name.trim(),
+                morningTime: routeForm.morningTime,
+                afternoonTime: routeForm.afternoonTime,
+                startPointName: routeForm.startPointName?.trim() || null,
+                startLatitude: routeForm.startCoords?.lat ?? null,
+                startLongitude: routeForm.startCoords?.lng ?? null,
+                endPointName: routeForm.endPointName?.trim() || null,
+                endLatitude: routeForm.endCoords?.lat ?? null,
+                endLongitude: routeForm.endCoords?.lng ?? null,
+            }
+
+            // Include valid stops for creation
+            if (!editingRouteId && routeForm.stops.length > 0) {
+                payload.stops = routeForm.stops
+                    .map((s, idx) => ({
+                        name: (s.name || `Stop ${idx + 1}`).trim(),
+                        latitude: s.coords?.lat || 0,
+                        longitude: s.coords?.lng || 0,
+                    }))
+                    .filter(s => s.name.length > 0)
+            }
+
             const res = editingRouteId
                 ? await fetch(`/api/admin/routes/${editingRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
                 : await fetch('/api/admin/routes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
             if (res.ok) {
                 setRouteForm(defaultRouteForm)
                 setEditingRouteId(null)
@@ -262,9 +310,21 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                                             </div>
                                         ))}
 
-                                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                                            <input type="text" placeholder="Stop Name" className="input-field" style={{ marginBottom: 0, padding: '0.5rem', flex: 1 }} value={newStop.name} onChange={e => setNewStop({ ...newStop, name: e.target.value })} />
-                                            <button className="btn btn-success" style={{ padding: '0.5rem 1rem' }} onClick={handleAddStop}>Add Stop</button>
+                                        <div style={{ marginTop: '1rem', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: 10, border: '1px solid var(--surface-border)' }}>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.75rem' }}>+ Add Stop to Route</div>
+                                            <div className="input-group" style={{ marginBottom: '0.75rem' }}>
+                                                <label className="input-label">Stop Name</label>
+                                                <input type="text" placeholder="e.g. Jalan Permata 3" className="input-field" value={newStop.name} onChange={e => setNewStop({ ...newStop, name: e.target.value })} />
+                                            </div>
+                                            <GeoLocationPicker
+                                                value={newStop.latitude && newStop.longitude ? { lat: parseFloat(newStop.latitude), lng: parseFloat(newStop.longitude) } : null}
+                                                onChange={coords => setNewStop({ ...newStop, latitude: coords ? String(coords.lat) : '', longitude: coords ? String(coords.lng) : '' })}
+                                                label="Stop Geolocation Coordinates"
+                                                markerColor="#FFD60A"
+                                            />
+                                            <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
+                                                <button className="btn btn-success" style={{ padding: '0.5rem 1.25rem', fontWeight: 700 }} onClick={handleAddStop}>+ Add Stop</button>
+                                            </div>
                                         </div>
                                     </motion.div>
                                 )}
@@ -354,29 +414,120 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                         backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
                         display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
                     }} onClick={e => { if (e.target === e.currentTarget) { setShowRouteModal(false); setEditingRouteId(null) } }}>
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="glass-panel" style={{ padding: '2rem', width: '90%', maxWidth: '500px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="glass-panel" style={{ padding: '2rem', width: '90%', maxWidth: '680px', border: '1px solid rgba(255,255,255,0.1)', maxHeight: '90vh', overflowY: 'auto' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                                 <h3 style={{ margin: 0, color: 'var(--bus-yellow)' }}>{editingRouteId ? 'Edit Route' : 'Add New Route'}</h3>
                                 <button type="button" onClick={() => { setShowRouteModal(false); setEditingRouteId(null) }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}>
                                     <X size={20} />
                                 </button>
                             </div>
-                            <form onSubmit={handleAddRoute} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <form onSubmit={handleAddRoute} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
                                 <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Route Name</label>
-                                    <input type="text" required className="input-field" placeholder="e.g. Route C" value={routeForm.name} onChange={e => setRouteForm({...routeForm, name: e.target.value})} />
+                                    <label className="input-label">Route Name *</label>
+                                    <input type="text" required className="input-field" placeholder="e.g. Route C — Taman Jaya" value={routeForm.name} onChange={e => setRouteForm({...routeForm, name: e.target.value})} />
                                 </div>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Morning Pickup Time</label>
-                                    <input type="text" className="input-field" placeholder="e.g. 7:30 AM" value={routeForm.morningTime} onChange={e => setRouteForm({...routeForm, morningTime: e.target.value})} />
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Morning Pickup Time</label>
+                                        <input type="text" className="input-field" placeholder="e.g. 7:30 AM" value={routeForm.morningTime} onChange={e => setRouteForm({...routeForm, morningTime: e.target.value})} />
+                                    </div>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Afternoon Dropoff Time</label>
+                                        <input type="text" className="input-field" placeholder="e.g. 3:00 PM" value={routeForm.afternoonTime} onChange={e => setRouteForm({...routeForm, afternoonTime: e.target.value})} />
+                                    </div>
                                 </div>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Afternoon Dropoff Time</label>
-                                    <input type="text" className="input-field" placeholder="e.g. 3:00 PM" value={routeForm.afternoonTime} onChange={e => setRouteForm({...routeForm, afternoonTime: e.target.value})} />
+
+                                {/* Start Point */}
+                                <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
+                                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Start Point (School / Depot)</span>
+                                    </div>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Start Point Name</label>
+                                        <input type="text" className="input-field" placeholder="e.g. SJK Taman Maju" value={routeForm.startPointName} onChange={e => setRouteForm({...routeForm, startPointName: e.target.value})} />
+                                    </div>
+                                    <GeoLocationPicker
+                                        value={routeForm.startCoords}
+                                        onChange={coords => setRouteForm(f => ({ ...f, startCoords: coords }))}
+                                        label="Start Point Coordinates"
+                                        markerColor="#22c55e"
+                                    />
                                 </div>
-                                <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', justifyContent: 'flex-end' }}>
+
+                                {/* End Point */}
+                                <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
+                                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>End Point (Last Drop Destination)</span>
+                                    </div>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">End Point Name</label>
+                                        <input type="text" className="input-field" placeholder="e.g. Taman Sentosa" value={routeForm.endPointName} onChange={e => setRouteForm({...routeForm, endPointName: e.target.value})} />
+                                    </div>
+                                    <GeoLocationPicker
+                                        value={routeForm.endCoords}
+                                        onChange={coords => setRouteForm(f => ({ ...f, endCoords: coords }))}
+                                        label="End Point Coordinates"
+                                        markerColor="#ef4444"
+                                    />
+                                </div>
+
+                                {/* Stops (only on new route creation) */}
+                                {!editingRouteId && (
+                                    <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>🚏 Boarding Stops ({routeForm.stops.length})</span>
+                                            <button type="button" className="btn" style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', background: 'rgba(255,214,10,0.15)', border: '1px solid rgba(255,214,10,0.3)', color: 'var(--bus-yellow)', display: 'flex', alignItems: 'center', gap: 6 }}
+                                                onClick={addStopDraft}>
+                                                <Plus size={13} /> Add Stop
+                                            </button>
+                                        </div>
+
+                                        {routeForm.stops.map((stop, idx) => (
+                                            <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '0.85rem', marginBottom: '0.75rem', border: '1px solid var(--surface-border)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
+                                                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--primary)', color: '#08080A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 800 }}>{idx + 1}</div>
+                                                    <input
+                                                        type="text"
+                                                        className="input-field"
+                                                        placeholder={`Stop ${idx + 1} name`}
+                                                        style={{ flex: 1, marginBottom: 0, padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}
+                                                        value={stop.name}
+                                                        onChange={e => {
+                                                            const stops = [...routeForm.stops]
+                                                            stops[idx] = { ...stops[idx], name: e.target.value }
+                                                            setRouteForm(f => ({ ...f, stops }))
+                                                        }}
+                                                    />
+                                                    <button type="button" onClick={() => removeStopDraft(idx)}
+                                                        style={{ background: 'none', border: '1px solid rgba(255,69,58,0.3)', borderRadius: 6, padding: '4px 7px', cursor: 'pointer', color: 'var(--danger)', display: 'flex' }}>
+                                                        <X size={13} />
+                                                    </button>
+                                                </div>
+                                                <GeoLocationPicker
+                                                    value={stop.coords}
+                                                    onChange={coords => {
+                                                        const stops = [...routeForm.stops]
+                                                        stops[idx] = { ...stops[idx], coords }
+                                                        setRouteForm(f => ({ ...f, stops }))
+                                                    }}
+                                                    label={`Stop ${idx + 1} Coordinates`}
+                                                    markerColor="#FFD60A"
+                                                />
+                                            </div>
+                                        ))}
+                                        {routeForm.stops.length === 0 && (
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.5rem 0' }}>
+                                                No stops added yet. You can add stops now with coordinates or after route creation in Manage Stops.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', justifyContent: 'flex-end' }}>
                                     <button type="button" className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => { setShowRouteModal(false); setEditingRouteId(null) }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary">{editingRouteId ? 'Save Changes' : 'Save Route'}</button>
+                                    <button type="submit" className="btn btn-primary">{editingRouteId ? 'Save Changes' : 'Create Route'}</button>
                                 </div>
                             </form>
                         </motion.div>

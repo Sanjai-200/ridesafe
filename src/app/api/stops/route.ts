@@ -39,15 +39,21 @@ export async function POST(request: NextRequest) {
             if (!data.routeId) {
                 return NextResponse.json({ error: 'routeId is required for bulk creation' }, { status: 400 })
             }
-            await prisma.stop.createMany({
-                data: data.stops.map((s: { name: string; latitude: number; longitude: number }, idx: number) => ({
-                    routeId: data.routeId,
-                    name: String(s.name).trim(),
-                    latitude: Number(s.latitude) || 0,
-                    longitude: Number(s.longitude) || 0,
-                    order: idx + 1,
-                }))
-            })
+            for (let idx = 0; idx < data.stops.length; idx++) {
+                const s = data.stops[idx]
+                const stopName = String(s.name || `Stop ${idx + 1}`).trim()
+                if (stopName) {
+                    await prisma.stop.create({
+                        data: {
+                            routeId: data.routeId,
+                            name: stopName,
+                            latitude: Number(s.latitude) || 0,
+                            longitude: Number(s.longitude) || 0,
+                            order: idx + 1,
+                        }
+                    })
+                }
+            }
             const stops = await prisma.stop.findMany({
                 where: { routeId: data.routeId },
                 orderBy: { order: 'asc' }
