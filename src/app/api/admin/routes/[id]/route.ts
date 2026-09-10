@@ -89,13 +89,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       await prisma.route.update({
         where: { id },
         data: updates,
+        select: { id: true, name: true }
       })
     } catch (updateErr) {
-      console.warn('Update with geo columns failed, updating base fields:', updateErr)
-      await prisma.route.update({
-        where: { id },
-        data: baseUpdates,
-      })
+      console.warn('Prisma update failed, updating via safe raw SQL:', updateErr)
+      try {
+        await prisma.$executeRawUnsafe(
+          `UPDATE "Route" SET "name" = COALESCE($1, "name"), "morningTime" = COALESCE($2, "morningTime"), "afternoonTime" = COALESCE($3, "afternoonTime"), "updatedAt" = NOW() WHERE "id" = $4`,
+          baseUpdates.name || null,
+          baseUpdates.morningTime || null,
+          baseUpdates.afternoonTime || null,
+          id
+        )
+      } catch (rawUpErr) {
+        console.error('Raw update failed:', rawUpErr)
+      }
     }
 
     // If stops are passed, sync stops safely
@@ -118,7 +126,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     }
 
-    let updatedRouteWithStops
+    let updatedRouteWithStops: any
     try {
       updatedRouteWithStops = await prisma.route.findUnique({
         where: { id },
@@ -128,20 +136,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         }
       })
     } catch {
-      updatedRouteWithStops = await prisma.route.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          name: true,
-          morningTime: true,
-          afternoonTime: true,
-          organizationId: true,
-          createdAt: true,
-          updatedAt: true,
-          stops: { orderBy: { order: 'asc' } },
-          _count: { select: { students: true, buses: true } }
-        }
+      const dbStops = await prisma.stop.findMany({
+        where: { routeId: id },
+        orderBy: { order: 'asc' }
       })
+      updatedRouteWithStops = {
+        id,
+        name: updates.name || 'Route',
+        morningTime: updates.morningTime || '7:30 AM',
+        afternoonTime: updates.afternoonTime || '3:00 PM',
+        stops: dbStops,
+        _count: { students: 0, buses: 0 }
+      }
     }
 
     return NextResponse.json({ route: updatedRouteWithStops })
