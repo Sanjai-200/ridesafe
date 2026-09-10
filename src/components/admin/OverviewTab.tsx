@@ -150,9 +150,13 @@ export default function OverviewTab({ currentUserRole }: { currentUserRole: stri
         </div>
     )
 
-    // Computed real stats
-    const activeTrips = trips.filter((t: TripRecord) => t.status !== 'TRIP_COMPLETED').length
-    const presentStudents = students.filter((s: StudentRecord) => s.status === 'CHECKED_OUT').length
+    // Computed real stats (with array guards to prevent client-side exception)
+    const safeTrips = Array.isArray(trips) ? trips : []
+    const safeStudents = Array.isArray(students) ? students : []
+    const safeEmergencies = Array.isArray(emergencies) ? emergencies : []
+
+    const activeTrips = safeTrips.filter((t: any) => t?.status !== 'TRIP_COMPLETED').length
+    const presentStudents = safeStudents.filter((s: any) => s?.status === 'CHECKED_OUT').length
 
     const containerVariants = {
         hidden: { opacity: 0 },
@@ -182,17 +186,17 @@ export default function OverviewTab({ currentUserRole }: { currentUserRole: stri
 
             {/* Emergency alerts */}
             <AnimatePresence>
-                {emergencies.length > 0 && (
+                {safeEmergencies.length > 0 && (
                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
                         style={{ background: 'rgba(239,68,68,0.08)', border: '2px solid #ef4444', padding: '1.5rem', borderRadius: 12, marginBottom: '2rem', overflow: 'hidden' }}>
                         <h2 style={{ color: '#ef4444', marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <motion.span animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 1 }} style={{ display: 'flex' }}>
                                 <AlertTriangle size={24} color="#ef4444" />
                             </motion.span>
-                            {t('overview.activeEmergencies')} ({emergencies.length})
+                            {t('overview.activeEmergencies')} ({safeEmergencies.length})
                         </h2>
                         <div style={{ display: 'grid', gap: '1rem' }}>
-                            {emergencies.map(e => (
+                            {safeEmergencies.map(e => (
                                 <motion.div layout key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: 8 }}>
                                     <div>
                                         <strong style={{ display: 'block', fontSize: '1.05rem' }}>

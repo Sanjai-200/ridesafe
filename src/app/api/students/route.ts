@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db/prisma'
 import { getUserFromSession } from '@/lib/auth/auth'
+import { autoMigrateDatabase } from '@/lib/db/auto-migrate'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,60 +12,94 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    let students;
+    // Auto-heal database schema
+    await autoMigrateDatabase().catch(console.warn)
+
+    let students: any[] = [];
 
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const tomorrow = new Date(today.getTime() + 86400000)
 
-    if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN') {
-      // Admins see all students
-      students = await prisma.student.findMany({
-        include: {
-          parent: { select: { id: true, name: true, phone: true, email: true } },
-          route: { select: { id: true, name: true } },
-          pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          dailyStatuses: {
-            where: { date: { gte: today, lt: tomorrow } },
-            take: 1,
-            select: { status: true }
+    try {
+      if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN') {
+        students = await prisma.student.findMany({
+          include: {
+            parent: { select: { id: true, name: true, phone: true, email: true } },
+            route: { select: { id: true, name: true } },
+            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dailyStatuses: {
+              where: { date: { gte: today, lt: tomorrow } },
+              take: 1,
+              select: { status: true }
+            }
           }
-        }
-      })
-    } else if (user.role === 'DRIVER') {
-      // Drivers see all students for the daily bus list
-      students = await prisma.student.findMany({
-        include: {
-          parent: { select: { id: true, name: true, phone: true, email: true } },
-          route: { select: { id: true, name: true } },
-          pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          dailyStatuses: {
-            where: { date: { gte: today, lt: tomorrow } },
-            take: 1,
-            select: { status: true }
+        })
+      } else if (user.role === 'DRIVER') {
+        students = await prisma.student.findMany({
+          include: {
+            parent: { select: { id: true, name: true, phone: true, email: true } },
+            route: { select: { id: true, name: true } },
+            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dailyStatuses: {
+              where: { date: { gte: today, lt: tomorrow } },
+              take: 1,
+              select: { status: true }
+            }
+          },
+          orderBy: { name: 'asc' }
+        })
+      } else if (user.role === 'PARENT') {
+        students = await prisma.student.findMany({
+          where: { parentId: user.id },
+          include: {
+            route: { select: { id: true, name: true } },
+            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dailyStatuses: {
+              where: { date: { gte: today, lt: tomorrow } },
+              take: 1,
+              select: { status: true }
+            }
           }
-        },
-        orderBy: { name: 'asc' }
-      })
-    } else if (user.role === 'PARENT') {
-      // Parents see only their own students with full route, stop, and daily status info
-      students = await prisma.student.findMany({
-        where: { parentId: user.id },
-        include: {
-          route: { select: { id: true, name: true } },
-          pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
-          dailyStatuses: {
-            where: { date: { gte: today, lt: tomorrow } },
-            take: 1,
-            select: { status: true }
+        })
+      } else {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+    } catch (queryErr) {
+      console.warn('Students query with dailyStatuses failed, falling back to base relations:', queryErr)
+      // Fallback query without dailyStatuses relation if table is missing
+      if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN') {
+        students = await prisma.student.findMany({
+          include: {
+            parent: { select: { id: true, name: true, phone: true, email: true } },
+            route: { select: { id: true, name: true } },
+            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
           }
-        }
-      })
-    } else {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+        })
+      } else if (user.role === 'DRIVER') {
+        students = await prisma.student.findMany({
+          include: {
+            parent: { select: { id: true, name: true, phone: true, email: true } },
+            route: { select: { id: true, name: true } },
+            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+          },
+          orderBy: { name: 'asc' }
+        })
+      } else if (user.role === 'PARENT') {
+        students = await prisma.student.findMany({
+          where: { parentId: user.id },
+          include: {
+            route: { select: { id: true, name: true } },
+            pickupStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+            dropoffStop: { select: { id: true, name: true, latitude: true, longitude: true } },
+          }
+        })
+      }
     }
 
     return NextResponse.json({ students })

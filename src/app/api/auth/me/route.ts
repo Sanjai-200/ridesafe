@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromSession, clearSession } from '@/lib/auth/auth'
 import prisma from '@/lib/db/prisma'
+import { autoMigrateDatabase } from '@/lib/db/auto-migrate'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +28,9 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function GET() {
+  // Ensure all database tables and columns exist
+  await autoMigrateDatabase().catch(console.warn)
+
   const session = await getUserFromSession()
   if (!session) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
