@@ -1,10 +1,16 @@
 'use client'
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle, AlertTriangle, Bus, Plus, Pencil, Trash2, MapPin, Settings2, X, Navigation } from 'lucide-react'
 import { useTranslation } from '@/i18n/provider'
 import GeoLocationPicker, { LatLng } from '@/components/shared/GeoLocationPicker'
-import RoutePathBuilder, { StopDraft } from '@/components/shared/RoutePathBuilder'
+import type { StopDraft } from '@/components/shared/RoutePathBuilder'
+
+const RoutePathBuilder = dynamic(() => import('@/components/shared/RoutePathBuilder'), {
+    ssr: false,
+    loading: () => <div style={{ padding: '2rem', textAlign: 'center', color: '#A6A6B2' }}>Loading route builder...</div>
+})
 
 const defaultBusForm = { plateNumber: '', capacity: '30', driverId: '', routeId: '', wialonUnitId: '', katsanaVehicleId: '' }
 const defaultRouteForm = {
@@ -39,15 +45,18 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
     const loadData = () => {
         Promise.all([
-            fetch('/api/admin/buses').then(res => res.json()),
-            fetch('/api/admin/routes').then(res => res.json()),
-            fetch('/api/admin/users').then(res => res.json())
+            fetch('/api/admin/buses').then(res => res.json()).catch(() => ({ buses: [] })),
+            fetch('/api/admin/routes').then(res => res.json()).catch(() => ({ routes: [] })),
+            fetch('/api/admin/users').then(res => res.json()).catch(() => ({ users: [] }))
         ]).then(([busData, routeData, userData]) => {
-            setBuses(busData.buses || [])
-            setRoutes(routeData.routes || [])
-            setDrivers((userData.users || []).filter((u: any) => u.role === 'DRIVER'))
+            setBuses(Array.isArray(busData?.buses) ? busData.buses : [])
+            setRoutes(Array.isArray(routeData?.routes) ? routeData.routes : [])
+            setDrivers(Array.isArray(userData?.users) ? userData.users.filter((u: any) => u.role === 'DRIVER') : [])
             setLoading(false)
-        }).catch(console.error)
+        }).catch(err => {
+            console.error('loadData error:', err)
+            setLoading(false)
+        })
     }
 
     useEffect(() => { loadData() }, [])
@@ -238,8 +247,10 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
     }
 
     const q = searchQuery.trim().toLowerCase()
-    const filteredBuses = q ? buses.filter(b => b.plateNumber?.toLowerCase().includes(q) || b.driver?.name?.toLowerCase().includes(q)) : buses
-    const filteredRoutes = q ? routes.filter(r => r.name?.toLowerCase().includes(q)) : routes
+    const safeBuses = Array.isArray(buses) ? buses : []
+    const safeRoutes = Array.isArray(routes) ? routes : []
+    const filteredBuses = q ? safeBuses.filter(b => b?.plateNumber?.toLowerCase().includes(q) || b?.driver?.name?.toLowerCase().includes(q)) : safeBuses
+    const filteredRoutes = q ? safeRoutes.filter(r => r?.name?.toLowerCase().includes(q)) : safeRoutes
 
     if (loading) return <div>Loading fleet...</div>
 
@@ -253,7 +264,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
                 <div style={{ display: 'grid', gap: '1rem' }}>
                     {filteredBuses.map((b, i) => (
-                        <div key={b.id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--surface-border)' }}>
+                        <div key={b?.id || i} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--surface-border)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <strong><span style={{ color: 'var(--text-muted)', fontWeight: 400, marginRight: 8, fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>{b.plateNumber}</strong>
                                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -284,7 +295,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
 
                 <div style={{ display: 'grid', gap: '1rem' }}>
                     {filteredRoutes.map((r, i) => (
-                        <div key={r.id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--surface-border)' }}>
+                        <div key={r?.id || i} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--surface-border)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <strong><span style={{ color: 'var(--text-muted)', fontWeight: 400, marginRight: 8, fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>{r.name}</strong>
                                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -309,7 +320,7 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem', display: 'flex', gap: 8 }}>
                                     {r.startPointName && <span>🟢 {r.startPointName}</span>}
                                     {r.endPointName && <span>🔴 {r.endPointName}</span>}
-                                    <span>·  {(r.stops || r._count?.stops || 0)} stops</span>
+                                    <span>· {Array.isArray(r.stops) ? r.stops.length : (r._count?.stops || 0)} stops</span>
                                 </div>
                             )}
 
@@ -318,10 +329,10 @@ export default function FleetTab({ searchQuery = '' }: { searchQuery?: string })
                                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} style={{ overflow: 'hidden', marginTop: '1rem', borderTop: '1px solid var(--surface-border)', paddingTop: '1rem' }}>
                                         <h4 style={{ margin: '0 0 1rem 0' }}>Route Stops</h4>
                                         {routeStops.map((s, idx) => (
-                                            <div key={s.id} style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+                                            <div key={s.id || idx} style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
                                                 <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>{idx + 1}</div>
                                                 <div style={{ flex: 1 }}>{s.name}</div>
-                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>[{s.latitude.toFixed(4)}, {s.longitude.toFixed(4)}]</div>
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>[{Number(s.latitude || 0).toFixed(4)}, {Number(s.longitude || 0).toFixed(4)}]</div>
                                                 <button onClick={() => handleDeleteStop(s.id)} title="Remove stop"
                                                     style={{ background: 'none', border: '1px solid rgba(255,69,58,0.3)', borderRadius: 8, padding: '3px 6px', cursor: 'pointer', color: 'var(--danger)', display: 'flex' }}>
                                                     <Trash2 size={12} />
