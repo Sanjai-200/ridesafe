@@ -62,6 +62,7 @@ export default function SuperAdminDashboard() {
     { id: 'ORGANIZATIONS', icon: Building2,       label: t('superAdmin.schools') || 'Schools & Tenants', badge: 'Tenants' },
     { id: 'USERS',         icon: ShieldCheck,     label: t('superAdmin.users') || 'Global User Directory', badge: 'RBAC' },
     { id: 'STUDENTS',      icon: GraduationCap,   label: t('superAdmin.students') || 'Students & Enrolment', badge: 'Roster' },
+    { id: 'ANNOUNCEMENTS', icon: Megaphone,       label: 'Broadcast Announcements', badge: 'Alerts' },
     { id: 'ANALYTICS',     icon: BarChart3,       label: t('superAdmin.analytics') || 'Global Analytics', badge: 'KPIs' },
     { id: 'AUDIT_LOG',     icon: FileText,        label: t('superAdmin.auditLog') || 'Security Audit Trail', badge: 'Trail' },
     { id: 'SETTINGS',      icon: Settings,        label: t('superAdmin.settings') || 'Developer & System Settings' },
@@ -301,6 +302,9 @@ export default function SuperAdminDashboard() {
           )}
           {activeTab === 'STUDENTS' && (
             <StudentsTab />
+          )}
+          {activeTab === 'ANNOUNCEMENTS' && (
+            <SuperAdminAnnouncementsTab />
           )}
           {activeTab === 'ANALYTICS' && (
             <GlobalAnalyticsTab />

@@ -70,6 +70,19 @@ interface OrgOption {
   name: string
 }
 
+interface StopOption {
+  id: string
+  name: string
+  order: number
+}
+
+const SELF_PICKUP_OPTIONS = [
+  { value: '', label: 'Bus Transport (no self-pickup)' },
+  { value: 'MORNING', label: 'Morning Self-Pickup' },
+  { value: 'PM', label: 'PM Self-Pickup' },
+  { value: 'AFTER_SCHOOL', label: 'After School Activity' },
+]
+
 const defaultStudentForm = {
   name: '',
   grade: 'Standard 1',
@@ -83,7 +96,7 @@ const defaultStudentForm = {
   dropoffStopId: '',
   pickupTime: '07:00 AM',
   isSelfPickup: false,
-  selfPickupSession: 'MORNING',
+  selfPickupSession: '',
   status: 'APPROVED'
 }
 
@@ -93,6 +106,7 @@ export default function StudentsTab() {
   const [parents, setParents] = useState<ParentUser[]>([])
   const [routes, setRoutes] = useState<RouteOption[]>([])
   const [orgs, setOrgs] = useState<OrgOption[]>([])
+  const [routeStops, setRouteStops] = useState<StopOption[]>([])
   const [loading, setLoading] = useState(true)
 
   // Filters & Search
@@ -116,6 +130,24 @@ export default function StudentsTab() {
     setToast(msg)
     setToastType(type)
     setTimeout(() => setToast(''), 3500)
+  }
+
+  const loadStopsForRoute = async (routeId: string) => {
+    if (!routeId) {
+      setRouteStops([])
+      return
+    }
+    try {
+      const res = await fetch(`/api/stops?routeId=${routeId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setRouteStops(data.stops || [])
+      } else {
+        setRouteStops([])
+      }
+    } catch {
+      setRouteStops([])
+    }
   }
 
   const loadData = async () => {
@@ -144,11 +176,13 @@ export default function StudentsTab() {
   const openAddModal = () => {
     setEditingStudent(null)
     setForm(defaultStudentForm)
+    setRouteStops([])
     setShowModal(true)
   }
 
   const openEditModal = (s: StudentRecord) => {
     setEditingStudent(s)
+    const selectedRouteId = s.routeId || s.route?.id || ''
     setForm({
       name: s.name,
       grade: s.grade,
@@ -156,15 +190,20 @@ export default function StudentsTab() {
       parentContact1: s.parentContact1,
       parentContact2: s.parentContact2 || '',
       organizationId: s.organizationId || '',
-      parentId: s.parentId || '',
-      routeId: s.routeId || '',
-      pickupStopId: s.pickupStopId || '',
-      dropoffStopId: s.dropoffStopId || '',
+      parentId: s.parentId || s.parent?.id || '',
+      routeId: selectedRouteId,
+      pickupStopId: s.pickupStopId || s.pickupStop?.id || '',
+      dropoffStopId: s.dropoffStopId || s.dropoffStop?.id || '',
       pickupTime: s.pickupTime || '07:00 AM',
       isSelfPickup: s.isSelfPickup,
-      selfPickupSession: s.selfPickupSession || 'MORNING',
+      selfPickupSession: s.selfPickupSession || '',
       status: s.status || 'APPROVED'
     })
+    if (selectedRouteId) {
+      loadStopsForRoute(selectedRouteId)
+    } else {
+      setRouteStops([])
+    }
     setShowModal(true)
   }
 
@@ -753,19 +792,94 @@ export default function StudentsTab() {
                   </label>
                   <select
                     value={form.routeId}
-                    onChange={e => setForm(p => ({ ...p, routeId: e.target.value }))}
+                    onChange={e => {
+                      const rId = e.target.value
+                      setForm(p => ({ ...p, routeId: rId, pickupStopId: '', dropoffStopId: '' }))
+                      loadStopsForRoute(rId)
+                    }}
                     style={{
                       width: '100%', padding: '10px 12px', borderRadius: 8,
                       background: '#0E0E11', border: '1px solid #26262C', color: '#FFF', fontSize: 14, marginBottom: 10
                     }}
                   >
-                    <option value="">{t('superAdmin.studentsPage.selectRoutePlaceholder')}</option>
+                    <option value="">-- No Route (Self-Pickup) --</option>
                     {routes.map(r => (
                       <option key={r.id} value={r.id}>
                         {r.name} {r.buses?.[0] ? t('superAdmin.studentsPage.busPrefixParen', { plate: r.buses[0].plateNumber }) : ''}
                       </option>
                     ))}
                   </select>
+
+                  {/* Route Stops: Pickup & Dropoff */}
+                  {routeStops.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: 12, color: '#30D158', fontWeight: 600, marginBottom: 4 }}>
+                          🟢 Pickup Stop
+                        </label>
+                        <select
+                          value={form.pickupStopId}
+                          onChange={e => setForm(p => ({ ...p, pickupStopId: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '8px 10px', borderRadius: 8,
+                            background: '#0E0E11', border: '1px solid #26262C', color: '#FFF', fontSize: 13
+                          }}
+                        >
+                          <option value="">-- Select Pickup Stop --</option>
+                          {routeStops.map(s => (
+                            <option key={s.id} value={s.id}>
+                              {s.order ? `${s.order}. ` : ''}{s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: 12, color: '#FF453A', fontWeight: 600, marginBottom: 4 }}>
+                          🔴 Dropoff Stop
+                        </label>
+                        <select
+                          value={form.dropoffStopId}
+                          onChange={e => setForm(p => ({ ...p, dropoffStopId: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '8px 10px', borderRadius: 8,
+                            background: '#0E0E11', border: '1px solid #26262C', color: '#FFF', fontSize: 13
+                          }}
+                        >
+                          <option value="">-- Select Dropoff Stop --</option>
+                          {routeStops.map(s => (
+                            <option key={s.id} value={s.id}>
+                              {s.order ? `${s.order}. ` : ''}{s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pickup Method */}
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#A6A6B2', marginBottom: 4 }}>
+                      Pickup Method
+                    </label>
+                    <select
+                      value={form.selfPickupSession}
+                      onChange={e => setForm(p => ({
+                        ...p,
+                        selfPickupSession: e.target.value,
+                        isSelfPickup: e.target.value !== ''
+                      }))}
+                      style={{
+                        width: '100%', padding: '8px 10px', borderRadius: 8,
+                        background: '#0E0E11', border: '1px solid #26262C', color: '#FFF', fontSize: 13
+                      }}
+                    >
+                      {SELF_PICKUP_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>
